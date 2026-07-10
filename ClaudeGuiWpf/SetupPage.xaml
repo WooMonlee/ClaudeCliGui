@@ -1,0 +1,138 @@
+<UserControl x:Class="ClaudeGui.SetupPage"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Background="#0c0c0c">
+    <Grid>
+        <ScrollViewer VerticalScrollBarVisibility="Auto">
+            <StackPanel MaxWidth="620" Margin="50,50" HorizontalAlignment="Center">
+
+                <!-- 标题 -->
+                <TextBlock Text="&#128640; 欢迎使用 Claude 网页界面" FontSize="26" FontWeight="Bold"
+                           Foreground="#64ffda" HorizontalAlignment="Center" Margin="0,0,0,10"/>
+                <TextBlock Text="正在检测环境..." FontSize="15" Foreground="#8892b0"
+                           x:Name="TxtSubtitle" HorizontalAlignment="Center" Margin="0,0,0,24"/>
+
+                <!-- 一键安装按钮 -->
+                <Button x:Name="BtnAutoSetup" Content="一键安装环境" Width="220" Height="48"
+                        FontSize="17" FontWeight="Bold" Click="AutoSetup_Click"
+                        Visibility="Collapsed" HorizontalAlignment="Center" Margin="0,0,0,24">
+                    <Button.Style>
+                        <Style TargetType="Button">
+                            <Setter Property="Background" Value="#64ffda"/>
+                            <Setter Property="Foreground" Value="#1a1a2e"/>
+                            <Setter Property="BorderThickness" Value="0"/>
+                            <Setter Property="Cursor" Value="Hand"/>
+                            <Setter Property="Template">
+                                <Setter.Value>
+                                    <ControlTemplate TargetType="Button">
+                                        <Border Background="{TemplateBinding Background}" CornerRadius="10" Padding="16,8">
+                                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                        </Border>
+                                    </ControlTemplate>
+                                </Setter.Value>
+                            </Setter>
+                        </Style>
+                    </Button.Style>
+                </Button>
+
+                <!-- 步骤1：Node.js -->
+                <Border Background="#16213e" CornerRadius="12" Padding="24" Margin="0,0,0,14">
+                    <StackPanel>
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                            <Border Width="32" Height="32" Background="#0f3460" CornerRadius="16" Margin="0,0,12,0">
+                                <TextBlock x:Name="NodeIcon" Text="1" FontSize="18" FontWeight="Bold"
+                                           Foreground="#64ffda" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Border>
+                            <TextBlock Text="Node.js 运行环境" FontSize="17" FontWeight="Bold"
+                                       Foreground="#e0e0e0" VerticalAlignment="Center"/>
+                        </StackPanel>
+                        <TextBlock x:Name="NodeStatus" Text="检测中..." FontSize="13"
+                                   Foreground="#8892b0" TextWrapping="Wrap" Margin="44,0,0,0"/>
+                    </StackPanel>
+                </Border>
+
+                <!-- 步骤2：Claude CLI -->
+                <Border Background="#16213e" CornerRadius="12" Padding="24" Margin="0,0,0,14">
+                    <StackPanel>
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                            <Border Width="32" Height="32" Background="#0f3460" CornerRadius="16" Margin="0,0,12,0">
+                                <TextBlock x:Name="ClaudeIcon" Text="2" FontSize="18" FontWeight="Bold"
+                                           Foreground="#64ffda" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Border>
+                            <TextBlock Text="Claude Code CLI" FontSize="17" FontWeight="Bold"
+                                       Foreground="#e0e0e0" VerticalAlignment="Center"/>
+                        </StackPanel>
+                        <TextBlock x:Name="ClaudeStatus" Text="等待 Node.js 就绪..." FontSize="13"
+                                   Foreground="#8892b0" TextWrapping="Wrap" Margin="44,0,0,0"/>
+                    </StackPanel>
+                </Border>
+
+                <!-- 步骤3：API Key -->
+                <Border Background="#16213e" CornerRadius="12" Padding="24" Margin="0,0,0,24">
+                    <StackPanel>
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                            <Border Width="32" Height="32" Background="#0f3460" CornerRadius="16" Margin="0,0,12,0">
+                                <TextBlock x:Name="ApiIcon" Text="3" FontSize="18" FontWeight="Bold"
+                                           Foreground="#64ffda" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Border>
+                            <TextBlock Text="DeepSeek API Key" FontSize="17" FontWeight="Bold"
+                                       Foreground="#e0e0e0" VerticalAlignment="Center"/>
+                        </StackPanel>
+                        <TextBlock x:Name="ApiStatus" Text="等待 Claude CLI 就绪..." FontSize="13"
+                                   Foreground="#8892b0" TextWrapping="Wrap" Margin="44,0,0,0"/>
+                        <TextBlock Foreground="#64ffda" FontSize="12" Cursor="Hand"
+                                   TextDecorations="Underline" Margin="44,6,0,0"
+                                   MouseLeftButtonDown="OpenDeepSeek_Click">
+                            &#128279; 打开 DeepSeek 获取 API Key (platform.deepseek.com/api_keys)
+                        </TextBlock>
+                        <TextBlock Text="API 端点地址" FontSize="11" Foreground="#8892b0" Margin="44,10,0,2"/>
+                        <TextBox x:Name="ApiUrlInput" Background="#0c0c0c" Foreground="#ff8c00"
+                                 FontFamily="Consolas" FontSize="12" Padding="8,6"
+                                 BorderBrush="#333" CaretBrush="#ff8c00"
+                                 Text="https://api.deepseek.com/anthropic" Margin="44,0,0,0" IsEnabled="False"/>
+                        <TextBlock Text="API Key" FontSize="11" Foreground="#8892b0" Margin="44,8,0,2"/>
+                        <Grid Margin="44,0,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBox x:Name="ApiKeyInput" Grid.Column="0"
+                                     Background="#0c0c0c" Foreground="#64ffda"
+                                     FontFamily="Consolas" FontSize="13" Padding="8,6"
+                                     BorderBrush="#333" CaretBrush="#64ffda" IsEnabled="False"/>
+                            <Button x:Name="BtnSaveApi" Grid.Column="1" Content="保存"
+                                    Width="60" Height="34" Margin="8,0,0,0" IsEnabled="False"
+                                    Click="SaveApi_Click">
+                                <Button.Style>
+                                    <Style TargetType="Button">
+                                        <Setter Property="Background" Value="#64ffda"/>
+                                        <Setter Property="Foreground" Value="#1a1a2e"/>
+                                        <Setter Property="FontWeight" Value="Bold"/>
+                                        <Setter Property="BorderThickness" Value="0"/>
+                                        <Setter Property="Cursor" Value="Hand"/>
+                                        <Setter Property="Template">
+                                            <Setter.Value>
+                                                <ControlTemplate TargetType="Button">
+                                                    <Border Background="{TemplateBinding Background}" CornerRadius="6" Padding="8,4">
+                                                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                                    </Border>
+                                                </ControlTemplate>
+                                            </Setter.Value>
+                                        </Setter>
+                                    </Style>
+                                </Button.Style>
+                            </Button>
+                        </Grid>
+                        <TextBlock x:Name="ApiSaveStatus" FontSize="12" Margin="44,6,0,0" Visibility="Collapsed"/>
+                    </StackPanel>
+                </Border>
+
+                <!-- 全部完成 -->
+                <TextBlock x:Name="TxtAllDone" Text="&#9989; 环境就绪" FontSize="16"
+                           Foreground="#4caf50" HorizontalAlignment="Center" Margin="0,0,0,14"
+                           Visibility="Collapsed"/>
+
+            </StackPanel>
+        </ScrollViewer>
+    </Grid>
+</UserControl>

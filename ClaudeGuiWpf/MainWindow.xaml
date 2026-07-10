@@ -1,0 +1,186 @@
+<Window x:Class="ClaudeGui.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:ClaudeGui"
+        Title="Claude 网页界面"
+        Width="1200" Height="750"
+        MinWidth="800" MinHeight="500"
+        WindowStartupLocation="CenterScreen"
+        Background="#1a1a2e">
+
+    <Window.Resources>
+        <!-- 颜色 -->
+        <SolidColorBrush x:Key="BgBrush" Color="#1a1a2e"/>
+        <SolidColorBrush x:Key="BgSecondary" Color="#16213e"/>
+        <SolidColorBrush x:Key="BgTertiary" Color="#0f3460"/>
+        <SolidColorBrush x:Key="TextBrush" Color="#e0e0e0"/>
+        <SolidColorBrush x:Key="TextMuted" Color="#8892b0"/>
+        <SolidColorBrush x:Key="AccentBrush" Color="#64ffda"/>
+        <SolidColorBrush x:Key="AccentDim" Color="#2264ffda"/>
+        <SolidColorBrush x:Key="BorderBrush" Color="#233554"/>
+        <SolidColorBrush x:Key="DangerBrush" Color="#ff6b6b"/>
+        <SolidColorBrush x:Key="ActiveDotBrush" Color="#4caf50"/>
+
+        <!-- 按钮样式 -->
+        <Style x:Key="SidebarBtn" TargetType="Button">
+            <Setter Property="Background" Value="#0f3460"/>
+            <Setter Property="Foreground" Value="#e0e0e0"/>
+            <Setter Property="BorderBrush" Value="#233554"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="6,4"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="6" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="BorderBrush" Value="#64ffda"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
+        <Style x:Key="PrimaryBtn" TargetType="Button" BasedOn="{StaticResource SidebarBtn}">
+            <Setter Property="Background" Value="#64ffda"/>
+            <Setter Property="Foreground" Value="#1a1a2e"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="FontWeight" Value="Bold"/>
+        </Style>
+
+        <!-- 项目卡片样式 -->
+        <Style x:Key="ProjectCard" TargetType="Border">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderBrush" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="8"/>
+            <Setter Property="Padding" Value="10,8"/>
+            <Setter Property="Margin" Value="0,0,0,2"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding IsActive}" Value="True">
+                    <Setter Property="Background" Value="#1a3a4a"/>
+                    <Setter Property="BorderBrush" Value="#64ffda"/>
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+    </Window.Resources>
+
+    <Grid>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="260" MinWidth="200"/>
+            <ColumnDefinition Width="5"/>  <!-- 分隔条 -->
+            <ColumnDefinition Width="*"/>
+        </Grid.ColumnDefinitions>
+
+        <!-- ======== 左侧：项目面板 ======== -->
+        <Border Grid.Column="0" Background="#16213e">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                </Grid.RowDefinitions>
+
+                <!-- 标题 -->
+                <StackPanel Grid.Row="0" Margin="16,16,16,10">
+                    <TextBlock Text="Claude 网页界面" FontSize="18" FontWeight="Bold" Foreground="#64ffda"/>
+                    <TextBlock Text="选择项目开始对话" FontSize="11" Foreground="#8892b0" Margin="0,2,0,0"/>
+                </StackPanel>
+
+                <!-- 工具栏 -->
+                <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="16,0,16,10">
+                    <Button Content="清零" Click="WipeAll_Click" Width="56" Margin="0,0,6,0"
+                            Background="Transparent" Foreground="#ff6b6b" FontWeight="Bold" FontSize="12"
+                            BorderBrush="#ff6b6b" BorderThickness="1" Cursor="Hand"
+                            ToolTip="删除所有配置和项目记录（慎用）"/>
+                    <Button Content="+ 新建" Style="{StaticResource PrimaryBtn}" Width="80" Click="NewProject_Click"/>
+                    <Button Content="+ 添加" Style="{StaticResource SidebarBtn}" Width="80" Margin="6,0,0,0" Click="AddExisting_Click"/>
+                </StackPanel>
+
+                <!-- 项目列表 -->
+                <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto" Margin="4,0,4,12">
+                    <ItemsControl x:Name="ProjectListBox" Margin="8,0">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Border Style="{StaticResource ProjectCard}"
+                                        MouseLeftButtonDown="ProjectCard_Click"
+                                        Tag="{Binding}">
+                                    <Grid>
+                                        <!-- 左侧选中指示条 -->
+                                        <Border Width="3" HorizontalAlignment="Left"
+                                                Background="#64ffda" CornerRadius="2"
+                                                Visibility="{Binding IsActive, Converter={StaticResource BoolToVisibility}}"/>
+
+                                        <Grid Margin="7,0,0,0">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+
+                                        <!-- 图标和活跃点 -->
+                                        <Grid Grid.Column="0" Width="24" Height="24">
+                                            <TextBlock Text="&#128193;" FontSize="16" VerticalAlignment="Center"/>
+                                            <Ellipse Width="6" Height="6" Fill="#4caf50"
+                                                     HorizontalAlignment="Right" VerticalAlignment="Bottom"
+                                                     Margin="0,0,-1,-1"
+                                                     Visibility="{Binding IsActive, Converter={StaticResource BoolToVisibility}}"/>
+                                        </Grid>
+
+                                        <!-- 名称+路径 -->
+                                        <StackPanel Grid.Column="1" Margin="8,0,0,0">
+                                            <TextBlock Text="{Binding Name}" FontSize="13" FontWeight="SemiBold"
+                                                       Foreground="#e0e0e0"/>
+                                            <TextBlock Text="{Binding Path}" FontSize="10" Foreground="#8892b0"
+                                                       FontFamily="Consolas" TextTrimming="CharacterEllipsis"/>
+                                            <TextBlock FontSize="10" Foreground="#8892b0" Margin="0,1,0,0">
+                                                <Run Text="上次: "/>
+                                                <Run Text="{Binding LastAccessedAt, StringFormat=yyyy-MM-dd}"/>
+                                            </TextBlock>
+                                        </StackPanel>
+
+                                        <!-- 操作按钮 -->
+                                        <StackPanel Grid.Column="2" Orientation="Horizontal">
+                                            <Button Content="✎" ToolTip="重命名" Click="RenameProject_Click"
+                                                    Tag="{Binding}" Style="{StaticResource SidebarBtn}"
+                                                    Width="28" Height="28" Padding="0" FontSize="11"/>
+                                            <Button Content="✕" ToolTip="删除" Click="DeleteProject_Click"
+                                                    Tag="{Binding}" Style="{StaticResource SidebarBtn}"
+                                                    Width="28" Height="28" Padding="0" FontSize="11"
+                                                    Margin="4,0,0,0"/>
+                                        </StackPanel>
+                                    </Grid>
+                                        </Grid> <!-- 内层 Grid 闭合 -->
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </ScrollViewer>
+
+            </Grid>
+        </Border>
+
+        <!-- ======== 分隔条 ======== -->
+        <GridSplitter Grid.Column="1" Width="5" Background="#233554"
+                      HorizontalAlignment="Stretch"
+                      ResizeBehavior="PreviousAndNext"/>
+
+        <!-- ======== 右侧：设置向导 / 终端 ======== -->
+        <Grid Grid.Column="2">
+            <!-- 设置向导（仅环境不完整时显示） -->
+            <local:SetupPage x:Name="SetupPage" Visibility="Collapsed"/>
+
+            <!-- 终端区域（默认显示，SetupPage 需用时才切换） -->
+            <local:TerminalControl x:Name="Terminal" Visibility="Visible"/>
+        </Grid>
+    </Grid>
+</Window>

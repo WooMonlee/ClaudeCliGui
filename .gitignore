@@ -1,0 +1,23 @@
+# ClaudeGUI 构建输出
+ClaudeGuiWpf/bin/
+ClaudeGuiWpf/obj/
+claudeg.exe
+
+# 调试日志
+*.log
+
+# 聊天记录（用户内容）
+聊天记录.*
+
+# Claude 本地配置（含项目数据）
+.claude/claudeg.json
+.claude/claudeg-snapshot.json
+
+# 用户文档
+ClaudeCodecli安装.*
+Claude初次.cmd
+Claude继续.cmd
+
+# IDE
+.vs/
+*.user
