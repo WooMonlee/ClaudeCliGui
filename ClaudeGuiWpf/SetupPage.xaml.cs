@@ -3,7 +3,7 @@ using System.IO.Compression;
 using System.Reflection;
 using System.Text;
 using System.Text.Json;
-using System.Text.RegularExpressions;
+using System.Text.Json.Nodes;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -83,8 +83,8 @@ public partial class SetupPage : System.Windows.Controls.UserControl
         }
         else
         {
-            // 全齐，不显示
             Logger.Info("SetupPage: 环境完整，跳过");
+            InstallContextMenu();
         }
     }
 
@@ -108,6 +108,12 @@ public partial class SetupPage : System.Windows.Controls.UserControl
         var url = GetConfig("ANTHROPIC_BASE_URL");
         if (!string.IsNullOrWhiteSpace(key))
         {
+            // 修复 L2：Key 存在时同步到当前进程环境（子进程 claude 需要）
+            Environment.SetEnvironmentVariable("ANTHROPIC_AUTH_TOKEN", key, EnvironmentVariableTarget.Process);
+            Environment.SetEnvironmentVariable("ANTHROPIC_API_KEY", key, EnvironmentVariableTarget.Process);
+            if (!string.IsNullOrWhiteSpace(url))
+                Environment.SetEnvironmentVariable("ANTHROPIC_BASE_URL", url, EnvironmentVariableTarget.Process);
+
             _apiOk = true; SetGreen(ApiIcon, ApiStatus, "已配置");
             ApiKeyInput.Text = key; ApiKeyInput.IsEnabled = false;
             if (!string.IsNullOrWhiteSpace(url)) ApiUrlInput.Text = url;
@@ -257,26 +263,30 @@ public partial class SetupPage : System.Windows.Controls.UserControl
             using (var reader = new StreamReader(stream))
                 templateJson = reader.ReadToEnd();
 
-            templateJson = templateJson.Replace("YOUR_DEEPSEEK_API_KEY_HERE", key);
-            templateJson = Regex.Replace(templateJson, @"""ANTHROPIC_BASE_URL"":\s*""[^""]*""", $"\"ANTHROPIC_BASE_URL\": \"{url}\"");
+            // 修复 S1：用 JsonNode 安全修改 JSON，避免正则注入
+            var node = JsonNode.Parse(templateJson)!;
+            node["env"]!["ANTHROPIC_AUTH_TOKEN"] = key;
+            node["env"]!["ANTHROPIC_API_KEY"] = key;
+            node["env"]!["ANTHROPIC_BASE_URL"] = url;
 
             var settingsDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".claude");
             Directory.CreateDirectory(settingsDir);
-            File.WriteAllText(Path.Combine(settingsDir, "settings.json"), templateJson);
+            var resultJson = node.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
+            File.WriteAllText(Path.Combine(settingsDir, "settings.json"), resultJson);
 
-            using var doc = JsonDocument.Parse(templateJson);
-            if (doc.RootElement.TryGetProperty("env", out var env))
-                foreach (var p in env.EnumerateObject())
+            if (node["env"] is JsonObject env)
+                foreach (var p in env)
                 {
-                    var val = p.Value.GetString() ?? "";
-                    Environment.SetEnvironmentVariable(p.Name, val, EnvironmentVariableTarget.User);
-                    Environment.SetEnvironmentVariable(p.Name, val, EnvironmentVariableTarget.Process);
+                    var val = p.Value?.GetValue<string>() ?? "";
+                    Environment.SetEnvironmentVariable(p.Key, val, EnvironmentVariableTarget.User);
+                    Environment.SetEnvironmentVariable(p.Key, val, EnvironmentVariableTarget.Process);
                 }
 
             _apiOk = true; SetGreen(ApiIcon, ApiStatus, "已配置");
             ApiSaveStatus.Text = "已保存"; ApiSaveStatus.Foreground = new SolidColorBrush(System.Windows.Media.Color.FromRgb(0x4c, 0xaf, 0x50));
             ApiSaveStatus.Visibility = Visibility.Visible; ApiKeyInput.IsEnabled = false; BtnSaveApi.IsEnabled = false;
             Logger.Info("SetupPage: API Key 已保存");
+            InstallContextMenu();
             UpdateReady();
         }
         catch (Exception ex)
@@ -290,6 +300,37 @@ public partial class SetupPage : System.Windows.Controls.UserControl
     private void OpenDeepSeek_Click(object sender, System.Windows.Input.MouseButtonEventArgs e)
     {
         try { Process.Start(new ProcessStartInfo("https://platform.deepseek.com/api_keys") { UseShellExecute = true }); } catch { }
+    }
+
+    // ============ 右键菜单注册 ============
+
+    private void InstallContextMenu()
+    {
+        try
+        {
+            var exePath = Environment.ProcessPath ?? "";
+            var menuName = "在当前文件夹使用ClaudeGui";
+
+            Microsoft.Win32.Registry.SetValue(@"HKEY_CLASSES_ROOT\Directory\shell\ClaudeGui", "", menuName);
+            Microsoft.Win32.Registry.SetValue(@"HKEY_CLASSES_ROOT\Directory\shell\ClaudeGui", "Icon", exePath);
+            Microsoft.Win32.Registry.SetValue(@"HKEY_CLASSES_ROOT\Directory\shell\ClaudeGui\command", "",
+                $"\"{exePath}\" --add-project \"%1\"");
+
+            Microsoft.Win32.Registry.SetValue(@"HKEY_CLASSES_ROOT\Directory\Background\shell\ClaudeGui", "", menuName);
+            Microsoft.Win32.Registry.SetValue(@"HKEY_CLASSES_ROOT\Directory\Background\shell\ClaudeGui", "Icon", exePath);
+            Microsoft.Win32.Registry.SetValue(@"HKEY_CLASSES_ROOT\Directory\Background\shell\ClaudeGui\command", "",
+                $"\"{exePath}\" --add-project \"%V\"");
+
+            // 清理旧的 ClaudeGUI（大写）注册表项
+            try { Microsoft.Win32.Registry.ClassesRoot.DeleteSubKeyTree(@"Directory\shell\ClaudeGUI", false); } catch { }
+            try { Microsoft.Win32.Registry.ClassesRoot.DeleteSubKeyTree(@"Directory\Background\shell\ClaudeGUI", false); } catch { }
+
+            Logger.Info("右键菜单已安装");
+        }
+        catch (Exception ex)
+        {
+            Logger.Warn($"右键菜单安装失败（可能需要管理员权限）: {ex.Message}");
+        }
     }
 
     // ============ 工具 ============

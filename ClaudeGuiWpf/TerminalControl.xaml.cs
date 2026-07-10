@@ -15,9 +15,12 @@ public partial class TerminalControl : System.Windows.Controls.UserControl
     private string? _sessionId;
     private string _currentDir = "";
     private bool _isRunning;
-    private Paragraph? _currentPara; // 当前累积文本的段落
-    private Run? _currentRun;        // 累积文本的 Run
-    private string _accumulated = ""; // 用于去重判断
+    private Paragraph? _currentPara;
+    private Run? _currentRun;
+    private string _accumulated = "";
+    private int _accumulatedLen;                    // 修复 P3：记录长度避免 O(n) StartsWith
+    private readonly List<(string role, string content)> _trackedMessages = new(); // 修复 L1：显式追踪角色
+    private const int MaxBlocks = 2000;             // 修复 R3：Block 数量上限
 
     private static readonly SolidColorBrush BrushSystem = new(System.Windows.Media.Color.FromRgb(0x88, 0x92, 0xb0));
     private static readonly SolidColorBrush BrushError = new(System.Windows.Media.Color.FromRgb(0xff, 0x6b, 0x6b));
@@ -200,12 +203,14 @@ public partial class TerminalControl : System.Windows.Controls.UserControl
         // 压缩连续空行：3+ 个连续换行 → 1 个换行
         text = RegexCompressNewlines(text);
 
-        // 去重：新文本以累积文本开头时只取增量
-        if (!string.IsNullOrEmpty(_accumulated) && text.StartsWith(_accumulated))
+        // 修复 P3：去重——用长度直接切片，不用 StartsWith O(n) 比较
+        if (_accumulatedLen > 0 && text.Length > _accumulatedLen)
         {
-            var delta = text[_accumulated.Length..];
-            if (string.IsNullOrEmpty(delta)) return;
-            text = delta;
+            text = text[_accumulatedLen..];
+        }
+        else if (_accumulatedLen > 0)
+        {
+            return; // 完全相同或更短，跳过
         }
 
         if (_currentRun == null || _currentPara == null)
@@ -221,37 +226,22 @@ public partial class TerminalControl : System.Windows.Controls.UserControl
         }
 
         _accumulated += text;
+        _accumulatedLen = _accumulated.Length;
+        TrimBlocks(); // 修复 R3
         OutputBox.ScrollToEnd();
+    }
+
+    private void TrimBlocks()
+    {
+        var blocks = OutputBox.Document.Blocks;
+        while (blocks.Count > MaxBlocks)
+            blocks.Remove(blocks.FirstBlock);
     }
 
     private static string RegexCompressNewlines(string input)
     {
         // 3+ 连续换行 → 1 换行；首尾空白保留（增量追加需要）
         return Regex.Replace(input, @"\n{3,}", "\n");
-    }
-
-    /// <summary>
-    /// 替换当前段落内容（用于 result 类型覆盖流式内容）
-    /// </summary>
-    private void ReplaceCurrentPara(string text)
-    {
-        text = RegexCompressNewlines(text);
-
-        if (_currentPara != null)
-        {
-            _currentPara.Inlines.Clear();
-            _currentRun = new Run(text);
-            _currentPara.Inlines.Add(_currentRun);
-        }
-        else
-        {
-            _currentRun = new Run(text);
-            _currentPara = new Paragraph { Margin = new Thickness(0), LineHeight = 18 };
-            _currentPara.Inlines.Add(_currentRun);
-            OutputBox.Document.Blocks.Add(_currentPara);
-        }
-        _accumulated = text;
-        OutputBox.ScrollToEnd();
     }
 
     /// <summary>
@@ -262,6 +252,7 @@ public partial class TerminalControl : System.Windows.Controls.UserControl
         _currentPara = null;
         _currentRun = null;
         _accumulated = "";
+        _accumulatedLen = 0;
     }
 
     /// <summary>
@@ -357,10 +348,43 @@ public partial class TerminalControl : System.Windows.Controls.UserControl
     {
         _isRunning = false;
         UpdateUIState();
+        SaveSnapshot();
         if (_process?.ExitCode != 0)
-        {
             AppendText($"\n[进程退出, 代码: {_process?.ExitCode}]\n", BrushError);
+        // 修复 R1：进程退出后释放句柄
+        try { _process?.Dispose(); } catch { }
+        _process = null;
+    }
+
+    /// <summary>
+    /// 保存当前对话到快照文件
+    /// </summary>
+    private void SaveSnapshot()
+    {
+        // 修复 L1：使用显式追踪的消息列表，不再靠空格前缀推断角色
+        // 修复 P1：追加最后一条 AI 回复到列表
+        if (_accumulatedLen > 0)
+            _trackedMessages.Add(("assistant", _accumulated));
+
+        if (_trackedMessages.Count == 0 || string.IsNullOrWhiteSpace(_currentDir)) return;
+
+        var claudeDir = Path.Combine(_currentDir, ".claude");
+        try { Directory.CreateDirectory(claudeDir); } catch { return; }
+
+        try
+        {
+            var messages = _trackedMessages.Select(m => new
+            {
+                role = m.role,
+                content = m.content,
+                timestamp = DateTime.Now
+            }).ToList();
+
+            File.WriteAllText(Path.Combine(claudeDir, "claudeg-snapshot.json"),
+                JsonSerializer.Serialize(messages, new JsonSerializerOptions { WriteIndented = true }));
+            Logger.Info($"快照已保存: {messages.Count} 条");
         }
+        catch (Exception ex) { Logger.Warn($"保存快照失败: {ex.Message}"); }
     }
 
     private void InputBox_KeyDown(object sender, System.Windows.Input.KeyEventArgs e)
@@ -386,6 +410,7 @@ public partial class TerminalControl : System.Windows.Controls.UserControl
         var prompt = InputBox.Text.Trim();
         if (string.IsNullOrWhiteSpace(prompt) || _isRunning) return;
 
+        _trackedMessages.Add(("user", prompt)); // 修复 L1：显式记录用户消息
         InputBox.Text = "";
         try { StartSession(_currentDir, prompt, ClaudePath); }
         catch (Exception ex) { AppendText($"启动失败: {ex.Message}\n", BrushError); }

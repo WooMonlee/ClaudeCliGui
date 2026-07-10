@@ -129,8 +129,8 @@ public static class MarkdownRenderer
 
     private static void RenderInline(Paragraph para, string text)
     {
-        // 正则匹配：**粗体**、*斜体*、`代码`、[链接](url)
-        var pattern = @"(\*\*(.+?)\*\*)|(\*(.+?)\*)|(`(.+?)`)|(\[(.+?)\]\((.+?)\))";
+        // 修复 L5：先匹配 **粗体** 再匹配 *斜体*，避免嵌套冲突
+        var pattern = @"(\*\*(.+?)\*\*)|(`(.+?)`)|(\[(.+?)\]\((.+?)\))|(\*(.+?)\*)";
         var lastIndex = 0;
 
         foreach (Match m in Regex.Matches(text, pattern))
@@ -145,22 +145,14 @@ public static class MarkdownRenderer
             {
                 para.Inlines.Add(new Bold(new Run(m.Groups[2].Value) { Foreground = BrText }));
             }
-            else if (m.Groups[3].Success) // *斜体*
+            else if (m.Groups[3].Success) // `代码`
             {
-                para.Inlines.Add(new Italic(new Run(m.Groups[4].Value) { Foreground = BrText }));
+                para.Inlines.Add(new Run(m.Groups[4].Value) { Foreground = BrCode });
             }
-            else if (m.Groups[5].Success) // `代码`
+            else if (m.Groups[5].Success) // [链接](url)
             {
-                para.Inlines.Add(new Run(m.Groups[6].Value)
-                {
-                    Foreground = BrCode,
-                    // Inline code background not directly supported; skip
-                });
-            }
-            else if (m.Groups[7].Success) // [链接](url)
-            {
-                var linkText = m.Groups[8].Value;
-                var linkUrl = m.Groups[9].Value;
+                var linkText = m.Groups[6].Value;
+                var linkUrl = m.Groups[7].Value;
                 var hyperlink = new Hyperlink(new Run(linkText) { Foreground = BrCode })
                 {
                     NavigateUri = new Uri(linkUrl),
@@ -172,6 +164,10 @@ public static class MarkdownRenderer
                     catch { }
                 };
                 para.Inlines.Add(hyperlink);
+            }
+            else if (m.Groups[8].Success) // *斜体*
+            {
+                para.Inlines.Add(new Italic(new Run(m.Groups[9].Value) { Foreground = BrText }));
             }
 
             lastIndex = m.Index + m.Length;
@@ -227,9 +223,9 @@ public static class MarkdownRenderer
 
     private static Block RenderTable(string[] lines, ref int i)
     {
-        // 收集所有表格行直到非表格行
+        // 收集表格行（修复 S2：最多 100 行）
         var tableLines = new List<string>();
-        while (i < lines.Length && lines[i].TrimStart().StartsWith("|"))
+        while (i < lines.Length && lines[i].TrimStart().StartsWith("|") && tableLines.Count < 100)
         {
             tableLines.Add(lines[i].Trim());
             i++;
