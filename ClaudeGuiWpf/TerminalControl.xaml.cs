@@ -17,16 +17,33 @@ public partial class TerminalControl : System.Windows.Controls.UserControl
     private bool _isRunning;
     private Paragraph? _currentPara; // 当前累积文本的段落
     private Run? _currentRun;        // 累积文本的 Run
-    private string _accumulated = ""; // 用于去重判断
+    private string _accumulated = "";
+    private const int MaxBlocks = 200;
+    private List<(string role, string content)>? _fullSnapshot; // 完整快照
+    private int _snapshotPos; // 已显示到的位置（从末尾倒数） // 用于去重判断
 
     private static readonly SolidColorBrush BrushSystem = new(System.Windows.Media.Color.FromRgb(0x88, 0x92, 0xb0));
     private static readonly SolidColorBrush BrushError = new(System.Windows.Media.Color.FromRgb(0xff, 0x6b, 0x6b));
-    private static readonly SolidColorBrush BrushAccent = new(System.Windows.Media.Color.FromRgb(0x64, 0xff, 0xda));
+    private static readonly SolidColorBrush BrushAccent = new(System.Windows.Media.Color.FromRgb(0xff, 0xf0, 0x60)); // 亮黄
+    private static readonly SolidColorBrush BrushUserBg = new(System.Windows.Media.Color.FromRgb(0x1a, 0x3d, 0x1a)); // 深绿底
     private static readonly SolidColorBrush BrushNormal = new(System.Windows.Media.Color.FromRgb(0xcc, 0xcc, 0xcc));
 
     public TerminalControl()
     {
         InitializeComponent();
+        OutputBox.Loaded += (_, _) =>
+        {
+            var sv = GetVisualChild<ScrollViewer>(OutputBox);
+            if (sv != null) sv.ScrollChanged += OnScrollChanged;
+        };
+    }
+
+    private void OnScrollChanged(object sender, ScrollChangedEventArgs e)
+    {
+        if (e.VerticalChange < 0 && e.VerticalOffset < 50 && _snapshotPos > 0)
+        {
+            ShowMoreSnapshot(LoadMoreCount);
+        }
     }
 
     public void StartSession(string workDir, string prompt, string? claudeOverride = null)
@@ -40,7 +57,16 @@ public partial class TerminalControl : System.Windows.Controls.UserControl
 
         // 启动新段落（不清理旧内容，保留历史）
         NewOutputParagraph();
-        AppendText($"\n> {prompt}\n\n", BrushAccent);
+        var userPara = new Paragraph(new Run($"> {prompt}\n"))
+        {
+            Foreground = BrushAccent,
+            Background = BrushUserBg,
+            Margin = new Thickness(0, 2, 0, 6),
+            LineHeight = 20,
+            Padding = new Thickness(8, 4, 8, 4)
+        };
+        OutputBox.Document.Blocks.Add(userPara);
+        NewOutputParagraph();
 
         var isFirstUse = !Directory.Exists(Path.Combine(workDir, ".claude"));
         var args = new StringBuilder();
@@ -244,6 +270,7 @@ public partial class TerminalControl : System.Windows.Controls.UserControl
         }
 
         _accumulated += text;
+        if (OutputBox.Document.Blocks.Count > MaxBlocks * 2) TrimOldBlocks();
         OutputBox.ScrollToEnd();
     }
 
@@ -335,18 +362,85 @@ public partial class TerminalControl : System.Windows.Controls.UserControl
         OutputBox.ScrollToEnd();
     }
 
+    private const int InitialShow = 40; // 首次显示 40 条
+    private const int LoadMoreCount = 20; // 每次上滚加载 20 条
+
+    /// <summary>
+    /// 加载完整历史快照，只显示尾部，上滚时动态加载
+    /// </summary>
+    public void LoadFullSnapshot(List<(string role, string content)> allMessages)
+    {
+        _fullSnapshot = allMessages;
+        _snapshotPos = allMessages.Count;
+        ShowMoreSnapshot(InitialShow);
+    }
+
+    private void ShowMoreSnapshot(int count)
+    {
+        if (_fullSnapshot == null || _snapshotPos <= 0) return;
+        var start = Math.Max(0, _snapshotPos - count);
+        var batch = _fullSnapshot.Skip(start).Take(_snapshotPos - start).ToList();
+        _snapshotPos = start;
+
+        // 保存当前滚动位置
+        var scrollPos = OutputBox.VerticalOffset;
+
+        // 在文档开头插入旧消息
+        for (int i = batch.Count - 1; i >= 0; i--)
+        {
+            var msg = batch[i];
+            var color = msg.role == "user"
+                ? System.Windows.Media.Color.FromRgb(0xff, 0xf0, 0x60)
+                : System.Windows.Media.Color.FromRgb(0xcc, 0xcc, 0xcc);
+            var prefix = msg.role == "user" ? "> " : "";
+            var para = new Paragraph(new Run($"{prefix}{msg.content}\n"))
+            {
+                Foreground = new SolidColorBrush(color),
+                Margin = new Thickness(0, 0, 0, 4),
+                LineHeight = 20
+            };
+            if (msg.role == "user")
+            {
+                para.Background = new SolidColorBrush(System.Windows.Media.Color.FromRgb(0x1a, 0x3d, 0x1a));
+                para.Padding = new Thickness(8, 4, 8, 4);
+                para.Margin = new Thickness(0, 2, 0, 6);
+            }
+            OutputBox.Document.Blocks.InsertBefore(OutputBox.Document.Blocks.FirstBlock, para);
+        }
+
+        // 恢复滚动位置（补偿新增内容的高度）
+        Dispatcher.BeginInvoke(new Action(() =>
+        {
+            OutputBox.UpdateLayout();
+            OutputBox.ScrollToVerticalOffset(scrollPos + 100); // 补偿新插入的偏移
+        }), System.Windows.Threading.DispatcherPriority.Background);
+
+        // 如果还有更多
+        if (_snapshotPos > 0)
+        {
+            var hint = new Paragraph(new Run($"▲ 向上滚动加载更多（剩余 {_snapshotPos} 条）"))
+            {
+                Foreground = new SolidColorBrush(System.Windows.Media.Color.FromRgb(0x55, 0x55, 0x55)),
+                FontSize = 11,
+                Margin = new Thickness(0, 2, 0, 2)
+            };
+            OutputBox.Document.Blocks.InsertBefore(OutputBox.Document.Blocks.FirstBlock, hint);
+        }
+    }
+
     public void AppendSnapshot(string role, string content, System.Windows.Media.Color color)
     {
         TxtPlaceholder.Visibility = Visibility.Collapsed;
 
         if (role == "user")
         {
-            // 用户消息：加前缀，简短显示
             var para = new Paragraph(new Run($"> {content}\n"))
             {
-                Foreground = new SolidColorBrush(color),
-                Margin = new Thickness(0, 0, 0, 6),
-                LineHeight = 20
+                Foreground = new SolidColorBrush(System.Windows.Media.Color.FromRgb(0xff, 0xf0, 0x60)),
+                Background = new SolidColorBrush(System.Windows.Media.Color.FromRgb(0x1a, 0x3d, 0x1a)),
+                Margin = new Thickness(0, 2, 0, 6),
+                LineHeight = 20,
+                Padding = new Thickness(8, 4, 8, 4)
             };
             OutputBox.Document.Blocks.Add(para);
         }
@@ -376,6 +470,15 @@ public partial class TerminalControl : System.Windows.Controls.UserControl
         }
     }
 
+    private void TrimOldBlocks()
+    {
+        var blocks = OutputBox.Document.Blocks;
+        while (blocks.Count > MaxBlocks)
+            blocks.Remove(blocks.FirstBlock);
+        if (blocks.Count > MaxBlocks / 2)
+            Logger.Info($"Trimmed blocks: {blocks.Count} remaining");
+    }
+
     private void OnProcessExited()
     {
         Logger.Info("TRACE: OnProcessExited 1/5 _isRunning=false");
@@ -383,6 +486,7 @@ public partial class TerminalControl : System.Windows.Controls.UserControl
         Logger.Info("TRACE: OnProcessExited 2/5 UpdateUIState");
         UpdateUIState();
         Logger.Info("TRACE: OnProcessExited 3/5 check exitCode");
+        TrimOldBlocks();
         if (_process?.ExitCode != 0)
             AppendText($"\n[进程退出, 代码: {_process?.ExitCode}]\n", BrushError);
         Logger.Info("TRACE: OnProcessExited 4/5 Dispose (background)");
@@ -516,6 +620,18 @@ public partial class TerminalControl : System.Windows.Controls.UserControl
     }
 
     public void Dispose() => StopProcess();
+
+    private static T? GetVisualChild<T>(DependencyObject parent) where T : DependencyObject
+    {
+        for (int i = 0; i < VisualTreeHelper.GetChildrenCount(parent); i++)
+        {
+            var child = VisualTreeHelper.GetChild(parent, i);
+            if (child is T t) return t;
+            var result = GetVisualChild<T>(child);
+            if (result != null) return result;
+        }
+        return null;
+    }
 
     private static void CopyEnv(ProcessStartInfo psi, string name)
     {

@@ -34,6 +34,11 @@ public partial class MainWindow : Window
     {
         Logger.Info("MainWindow Loaded");
         SetupPage.SetupCompleted += OnSetupCompleted;
+        SetupPage.RequestShow += () =>
+        {
+            SetupPage.Visibility = Visibility.Visible;
+            Terminal.Visibility = Visibility.Collapsed;
+        };
         RefreshProjectList();
         // SetupPage 也会自身检测，缺组件才显示
 
@@ -235,31 +240,16 @@ public partial class MainWindow : Window
 
     // ============ 历史快照 ============
 
-    private const int MaxInitialMessages = 60;
-
     private void LoadSnapshot(string workDir)
     {
         var all = LoadClaudeJsonlHistory(workDir, 1000);
         if (all.Count == 0) all = LoadClaudegSnapshot(workDir);
         if (all.Count == 0) return;
 
-        var show = all.Count <= MaxInitialMessages ? all : all.Skip(all.Count - MaxInitialMessages).ToList();
-        if (all.Count > MaxInitialMessages)
-            Terminal.AppendSnapshot("system", $"（共 {all.Count} 条历史，已跳过较早 {all.Count - MaxInitialMessages} 条）",
-                System.Windows.Media.Color.FromRgb(0x66, 0x66, 0x66));
-
-        foreach (var msg in show)
-        {
-            var color = msg.Role switch
-            {
-                "user" => System.Windows.Media.Color.FromRgb(0x64, 0xff, 0xda),
-                "system" => System.Windows.Media.Color.FromRgb(0x88, 0x92, 0xb0),
-                _ => System.Windows.Media.Color.FromRgb(0xcc, 0xcc, 0xcc)
-            };
-            Terminal.AppendSnapshot(msg.Role, msg.Content, color);
-        }
+        var messages = all.Select(m => (m.Role, m.Content)).ToList();
+        Terminal.LoadFullSnapshot(messages);
         Terminal.ScrollToEnd();
-        Logger.Info($"加载历史: {show.Count}/{all.Count}");
+        Logger.Info($"加载历史: {all.Count} 条");
     }
 
     private List<SnapshotMsg> LoadClaudeJsonlHistory(string workDir, int maxCount = 500)

@@ -25,6 +25,7 @@
 
   <ItemGroup>
     <EmbeddedResource Include="settings-template.json" />
+    <EmbeddedResource Include="claude-md-template.txt" />
     <TrimmerRootAssembly Include="System.Diagnostics.Tracing" />
     <TrimmerRootAssembly Include="System.Text.Encoding.CodePages" />
   </ItemGroup>

@@ -13,6 +13,7 @@ namespace ClaudeGui;
 public partial class SetupPage : System.Windows.Controls.UserControl
 {
     public event Action? SetupCompleted;
+    public event Action? RequestShow;
 
     private string? _nodeDir;
     private bool _nodeOk, _claudeOk, _apiOk;
@@ -70,14 +71,14 @@ public partial class SetupPage : System.Windows.Controls.UserControl
         // 如果缺组件，显示一键安装按钮
         if (!_nodeOk || !_claudeOk)
         {
-            Visibility = Visibility.Visible;
+            RequestShow?.Invoke();
             BtnAutoSetup.Visibility = Visibility.Visible;
             TxtSubtitle.Text = "首次使用需安装运行环境，点击下方按钮自动完成";
             Logger.Info($"SetupPage: 缺组件 Node={_nodeOk} Claude={_claudeOk}");
         }
         else if (!_apiOk)
         {
-            Visibility = Visibility.Visible;
+            RequestShow?.Invoke();
             TxtSubtitle.Text = "请配置 API Key";
             Logger.Info("SetupPage: 仅缺 API Key");
         }
@@ -286,6 +287,19 @@ public partial class SetupPage : System.Windows.Controls.UserControl
             ApiSaveStatus.Text = "已保存"; ApiSaveStatus.Foreground = new SolidColorBrush(System.Windows.Media.Color.FromRgb(0x4c, 0xaf, 0x50));
             ApiSaveStatus.Visibility = Visibility.Visible; ApiKeyInput.IsEnabled = false; BtnSaveApi.IsEnabled = false;
             Logger.Info("SetupPage: API Key 已保存");
+
+            // 写入全局 CLAUDE.md 模板
+            var globalMd = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".claude", "CLAUDE.md");
+            if (!File.Exists(globalMd))
+            {
+                try
+                {
+                    using var ms = asm.GetManifestResourceStream("ClaudeGui.claude-md-template.txt");
+                    if (ms != null) { using var r = new StreamReader(ms); File.WriteAllText(globalMd, r.ReadToEnd()); }
+                }
+                catch { }
+            }
+
             InstallContextMenu();
             UpdateReady();
         }
