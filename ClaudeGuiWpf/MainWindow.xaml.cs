@@ -387,7 +387,7 @@ public partial class MainWindow : Window
         {
             using var hc = new System.Net.Http.HttpClient { Timeout = TimeSpan.FromSeconds(15) };
             hc.DefaultRequestHeaders.Add("User-Agent", "ClaudeG");
-            var json = await hc.GetStringAsync("https://api.github.com/repos/WooMonlee/ClaudeG/releases/latest");
+            var json = await hc.GetStringAsync("https://api.github.com/repos/WooMonlee/ClaudeCliGui/releases/latest");
             using var doc = JsonDocument.Parse(json);
             var tag = doc.RootElement.GetProperty("tag_name").GetString();
             var assets = doc.RootElement.GetProperty("assets");
