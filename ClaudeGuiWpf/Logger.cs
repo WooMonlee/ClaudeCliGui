@@ -9,7 +9,7 @@ public static class Logger
 {
     private static readonly string _logPath;
     private static readonly object _lock = new();
-    private static bool _enabled = true;  // 始终开启直到稳定
+    private static bool _enabled = true;
 
     static Logger()
     {
@@ -47,14 +47,7 @@ public static class Logger
         var line = $"[{DateTime.Now:HH:mm:ss.fff}] [{level}] {msg}";
         Debug.WriteLine(line);
 
-        lock (_lock)
-        {
-            try
-            {
-                File.AppendAllText(_logPath, line + Environment.NewLine);
-            }
-            catch { /* 记录日志本身不应导致崩溃 */ }
-        }
+        lock (_lock) { try { File.AppendAllText(_logPath, line + Environment.NewLine); } catch { } }
     }
 
     public static string LogPath => _logPath;

@@ -1,0 +1,18 @@
+{
+  "projects": [
+    {
+      "name": "ClaudeCodeCliGuiC#",
+      "path": "D:\\Prog\\_Project\\ClaudeCodeCliGuiC#",
+      "createdAt": "2026-07-10T14:20:08.660154+08:00",
+      "lastAccessedAt": "2026-07-10T22:25:29.9717556+08:00"
+    },
+    {
+      "name": "\u53EA\u662F\u6D4B\u8BD5",
+      "path": "D:\\Prog\\_Project\\\u53EA\u662F\u6D4B\u8BD5",
+      "createdAt": "2026-07-10T14:40:45.0441117+08:00",
+      "lastAccessedAt": "2026-07-10T22:25:31.117803+08:00"
+    }
+  ],
+  "setupCompleted": true,
+  "claudeDir": null
+}
