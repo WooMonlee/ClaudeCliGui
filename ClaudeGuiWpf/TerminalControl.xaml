@@ -1,7 +1,8 @@
 <UserControl x:Class="ClaudeGui.TerminalControl"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             Background="#0c0c0c">
+             Background="#0c0c0c"
+             AllowDrop="True" DragOver="OnDragOver" Drop="OnDrop">
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="*"/>
@@ -38,13 +39,12 @@
 
         <!-- 输入区域 -->
         <Border Grid.Row="2" Background="#1a1a1a" BorderBrush="#333333" BorderThickness="0,1,0,0">
-            <Grid Margin="10,8">
+            <Grid Margin="10,4">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="*"/>
                     <RowDefinition Height="Auto"/>
                 </Grid.RowDefinitions>
 
-                <!-- 多行输入框 -->
                 <TextBox x:Name="InputBox" Grid.Row="0"
                          Background="#0c0c0c" Foreground="#cccccc"
                          FontFamily="Consolas" FontSize="13"
@@ -57,22 +57,33 @@
                          TextChanged="InputBox_TextChanged"/>
 
                 <!-- 按钮行 -->
-                <StackPanel Grid.Row="1" Orientation="Horizontal"
-                            HorizontalAlignment="Right" Margin="0,8,0,0">
-                    <TextBlock Text="Ctrl+Enter 发送"
-                               Foreground="#666666" FontSize="11"
-                               VerticalAlignment="Center" Margin="0,0,12,0"/>
-                    <Button x:Name="BtnSend" Content="发送"
-                            Width="100" Height="30"
-                            Background="#64ffda" Foreground="#1a1a2e"
-                            FontWeight="Bold" BorderThickness="0"
-                            IsEnabled="False" Click="Send_Click"/>
-                    <Button x:Name="BtnStop" Content="停止"
-                            Width="60" Height="30" Margin="8,0,0,0"
-                            Background="#ff6b6b" Foreground="white"
-                            FontWeight="Bold" BorderThickness="0"
-                            Visibility="Collapsed" Click="Stop_Click"/>
-                </StackPanel>
+                <Grid Grid.Row="1" Margin="0,6,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Grid.Column="0" Orientation="Horizontal" Margin="24,0,0,0">
+                        <ComboBox x:Name="CmbSkills" Width="130" Height="26" FontSize="11"
+                                  Background="#0f3460" Foreground="#64ffda" BorderBrush="#233554"
+                                  SelectionChanged="Skill_Selected" IsEnabled="False" Visibility="Collapsed"/>
+                        <ComboBox x:Name="CmbTips" Width="130" Height="26" FontSize="11" Margin="24,0,0,0"
+                                  Background="#0f3460" Foreground="#ff8c00" BorderBrush="#233554"
+                                  SelectionChanged="Tip_Selected" IsEnabled="False" Visibility="Collapsed"/>
+                    </StackPanel>
+                    <StackPanel Grid.Column="2" Orientation="Horizontal" Margin="0,0,24,0">
+                        <TextBlock Text="Ctrl+Enter 发送" Foreground="#666666" FontSize="11"
+                                   VerticalAlignment="Center" Margin="0,0,12,0"/>
+                        <Button x:Name="BtnSend" Content="发送" Width="100" Height="30"
+                                Background="#64ffda" Foreground="#1a1a2e"
+                                FontWeight="Bold" BorderThickness="0"
+                                IsEnabled="False" Visibility="Collapsed" Click="Send_Click"/>
+                        <Button x:Name="BtnStop" Content="停止" Width="60" Height="30" Margin="8,0,0,0"
+                                Background="#ff6b6b" Foreground="white"
+                                FontWeight="Bold" BorderThickness="0"
+                                Visibility="Collapsed" Click="Stop_Click"/>
+                    </StackPanel>
+                </Grid>
             </Grid>
         </Border>
     </Grid>

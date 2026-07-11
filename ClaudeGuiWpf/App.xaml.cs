@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Windows;
 using System.Windows.Threading;
 
@@ -26,6 +27,9 @@ public partial class App : System.Windows.Application
         catch { }
 
         Logger.Info("=== 应用启动 ===");
+
+        // 检测是否有待更新文件
+        SwapNewVersionIfExists();
         Logger.Info($"参数: {string.Join(" ", e.Args)}");
         Logger.Info($"日志路径: {Logger.LogPath}");
 
@@ -62,6 +66,26 @@ public partial class App : System.Windows.Application
             Logger.Error("启动失败", ex);
             throw;
         }
+    }
+
+    private static void SwapNewVersionIfExists()
+    {
+        var exePath = Environment.ProcessPath;
+        if (string.IsNullOrWhiteSpace(exePath)) return;
+        var newPath = Path.Combine(Path.GetDirectoryName(exePath)!, "claudeg.new.exe");
+        if (!File.Exists(newPath)) return;
+
+        try
+        {
+            var oldPath = exePath + ".old";
+            try { File.Delete(oldPath); } catch { }
+            File.Move(exePath, oldPath);
+            File.Move(newPath, exePath);
+            // 启动新版本
+            Process.Start(exePath);
+            Environment.Exit(0);
+        }
+        catch { /* 交换失败不崩溃 */ }
     }
 
     protected override void OnExit(ExitEventArgs e)

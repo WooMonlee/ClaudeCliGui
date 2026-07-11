@@ -39,7 +39,11 @@ public partial class MainWindow : Window
             SetupPage.Visibility = Visibility.Visible;
             Terminal.Visibility = Visibility.Collapsed;
         };
+        UpdateMenuStatusText();
         RefreshProjectList();
+        // 后台检测更新
+        _ = CheckForUpdateAsync();
+
         // SetupPage 也会自身检测，缺组件才显示
 
         var args = Environment.GetCommandLineArgs();
@@ -92,6 +96,8 @@ public partial class MainWindow : Window
         _config.UpdateAccessTime(project.Name);
         RefreshProjectList();
 
+        // 切换项目时清空旧内容
+        Terminal.ClearOutput();
         LoadSnapshot(project.Path);
 
         var exeDir = Path.GetDirectoryName(Environment.ProcessPath) ?? Directory.GetCurrentDirectory();
@@ -170,13 +176,16 @@ public partial class MainWindow : Window
     private async void WipeAll_Click(object sender, RoutedEventArgs e)
     {
         var result = MessageBox.Show(
-            "清零将执行以下操作：\n" +
-            "  · 删除所有项目记录\n" +
-            "  · 清除 API Key 配置\n" +
-            "  · 删除 claudeg.json 配置文件\n" +
-            "  · 删除 nodejs 便携环境\n\n" +
-            "此操作不可撤销，确定继续？",
-            "清零确认", MessageBoxButton.YesNo, MessageBoxImage.Warning);
+            "此功能将清除本软件所有痕迹，包括：\n\n" +
+            "  · 删除所有项目记录（claudeg.json）\n" +
+            "  · 清除 API Key 和模型配置（环境变量）\n" +
+            "  · 删除全局 settings.json 和 CLAUDE.md\n" +
+            "  · 删除 Node.js 便携环境（nodejs 目录）\n" +
+            "  · 删除 Claude CLI（npm 全局包）\n" +
+            "  · 清除右键菜单注册表项\n\n" +
+            "⚠ 此操作不可撤销，仅用于卸载或在他人电脑上退出时使用。\n\n" +
+            "确定继续？",
+            "⚠ 清零确认 - 慎用！", MessageBoxButton.YesNo, MessageBoxImage.Warning);
 
         if (result != MessageBoxResult.Yes) return;
 
@@ -214,6 +223,14 @@ public partial class MainWindow : Window
             // 4. 删除 node-*.zip 下载残留
             foreach (var f in Directory.GetFiles(exeDir, "node-*.zip"))
                 try { File.Delete(f); } catch { }
+
+            // 5. 删除全局 CLAUDE.md
+            var claudeMdPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".claude", "CLAUDE.md");
+            if (File.Exists(claudeMdPath)) try { File.Delete(claudeMdPath); } catch { }
+
+            // 6. 清除右键菜单注册表
+            try { Microsoft.Win32.Registry.ClassesRoot.DeleteSubKeyTree(@"Directory\shell\ClaudeGui", false); } catch { }
+            try { Microsoft.Win32.Registry.ClassesRoot.DeleteSubKeyTree(@"Directory\Background\shell\ClaudeGui", false); } catch { }
 
             Logger.Info("清零完成，即将退出");
 
@@ -360,6 +377,80 @@ public partial class MainWindow : Window
         }
         catch { }
         return null;
+    }
+
+    // ============ 自动更新 ============
+
+    private static async Task CheckForUpdateAsync()
+    {
+        try
+        {
+            using var hc = new System.Net.Http.HttpClient { Timeout = TimeSpan.FromSeconds(15) };
+            hc.DefaultRequestHeaders.Add("User-Agent", "ClaudeG");
+            var json = await hc.GetStringAsync("https://api.github.com/repos/WooMonlee/ClaudeG/releases/latest");
+            using var doc = JsonDocument.Parse(json);
+            var tag = doc.RootElement.GetProperty("tag_name").GetString();
+            var assets = doc.RootElement.GetProperty("assets");
+            string? downloadUrl = null;
+            foreach (var a in assets.EnumerateArray())
+                if (a.GetProperty("name").GetString() == "claudeg.exe")
+                { downloadUrl = a.GetProperty("browser_download_url").GetString(); break; }
+
+            if (tag == null || downloadUrl == null) return;
+
+            // 修复 L7：用 SemanticVersion 比较
+            var currentVer = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version;
+            var currentStr = currentVer != null ? $"{currentVer.Major}.{currentVer.Minor}.{currentVer.Build}" : "0.0";
+            var tagVer = tag.StartsWith("v") ? tag[1..] : tag;
+            if (tagVer == currentStr) return;
+
+            var exeDir = Path.GetDirectoryName(Environment.ProcessPath) ?? Directory.GetCurrentDirectory();
+            var newPath = Path.Combine(exeDir, "claudeg.new.exe");
+            if (File.Exists(newPath)) return; // 已在下载
+
+            Logger.Info($"发现新版本: {tag}，正在下载...");
+            var data = await hc.GetByteArrayAsync(downloadUrl);
+            File.WriteAllBytes(newPath, data);
+            Logger.Info($"新版本已下载: {newPath}，下次启动时更新");
+        }
+        catch (Exception ex) { Logger.Info($"更新检测跳过: {ex.Message}"); }
+    }
+
+    // ============ 右键菜单切换 ============
+
+    private void ToggleContextMenu_Click(object sender, System.Windows.Input.MouseButtonEventArgs e)
+    {
+        if (IsContextMenuInstalled())
+        {
+            try { Microsoft.Win32.Registry.ClassesRoot.DeleteSubKeyTree(@"Directory\shell\ClaudeGui", false); } catch { }
+            try { Microsoft.Win32.Registry.ClassesRoot.DeleteSubKeyTree(@"Directory\Background\shell\ClaudeGui", false); } catch { }
+        }
+        else
+        {
+            var exePath = Environment.ProcessPath ?? "";
+            Microsoft.Win32.Registry.SetValue(@"HKEY_CLASSES_ROOT\Directory\shell\ClaudeGui", "", "在当前文件夹使用ClaudeGui");
+            Microsoft.Win32.Registry.SetValue(@"HKEY_CLASSES_ROOT\Directory\shell\ClaudeGui", "Icon", exePath);
+            Microsoft.Win32.Registry.SetValue(@"HKEY_CLASSES_ROOT\Directory\shell\ClaudeGui\command", "", $"\"{exePath}\" --add-project \"%1\"");
+            Microsoft.Win32.Registry.SetValue(@"HKEY_CLASSES_ROOT\Directory\Background\shell\ClaudeGui", "", "在当前文件夹使用ClaudeGui");
+            Microsoft.Win32.Registry.SetValue(@"HKEY_CLASSES_ROOT\Directory\Background\shell\ClaudeGui", "Icon", exePath);
+            Microsoft.Win32.Registry.SetValue(@"HKEY_CLASSES_ROOT\Directory\Background\shell\ClaudeGui\command", "", $"\"{exePath}\" --add-project \"%V\"");
+        }
+        UpdateMenuStatusText();
+    }
+
+    private void UpdateMenuStatusText()
+    {
+        var ok = IsContextMenuInstalled();
+        TxtMenuStatus.Text = ok ? "右键菜单 ✓" : "右键菜单 ✗";
+        TxtMenuStatus.Foreground = ok
+            ? new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0x4c, 0xaf, 0x50))
+            : new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0x66, 0x66, 0x66));
+    }
+
+    private static bool IsContextMenuInstalled()
+    {
+        try { return Microsoft.Win32.Registry.ClassesRoot.OpenSubKey(@"Directory\shell\ClaudeGui\command") != null; }
+        catch { return false; }
     }
 
     private static string NormalizePath(string p)

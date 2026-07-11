@@ -15,22 +15,74 @@ public partial class TerminalControl : System.Windows.Controls.UserControl
     private string? _sessionId;
     private string _currentDir = "";
     private bool _isRunning;
-    private Paragraph? _currentPara; // 当前累积文本的段落
-    private Run? _currentRun;        // 累积文本的 Run
+    private Paragraph? _currentPara;
+    private Run? _currentRun;
     private string _accumulated = "";
+    private int _accumulatedLen;                           // 修复 P2：O(1) 去重
     private const int MaxBlocks = 200;
-    private List<(string role, string content)>? _fullSnapshot; // 完整快照
-    private int _snapshotPos; // 已显示到的位置（从末尾倒数） // 用于去重判断
+    private List<(string role, string content)>? _fullSnapshot;
+    private int _snapshotPos;
+    private const int InitialShow = 40;
+    private const int LoadMoreCount = 20;
 
     private static readonly SolidColorBrush BrushSystem = new(System.Windows.Media.Color.FromRgb(0x88, 0x92, 0xb0));
     private static readonly SolidColorBrush BrushError = new(System.Windows.Media.Color.FromRgb(0xff, 0x6b, 0x6b));
-    private static readonly SolidColorBrush BrushAccent = new(System.Windows.Media.Color.FromRgb(0xff, 0xf0, 0x60)); // 亮黄
-    private static readonly SolidColorBrush BrushUserBg = new(System.Windows.Media.Color.FromRgb(0x1a, 0x3d, 0x1a)); // 深绿底
+    private static readonly SolidColorBrush BrushAccent = new(System.Windows.Media.Color.FromRgb(0xff, 0xf0, 0x60));
+    private static readonly SolidColorBrush BrushUserBg = new(System.Windows.Media.Color.FromRgb(0x1e, 0x1e, 0x1e));
     private static readonly SolidColorBrush BrushNormal = new(System.Windows.Media.Color.FromRgb(0xcc, 0xcc, 0xcc));
+
+    // 修复 P1：环境变量只查一次，缓存
+    private static readonly Dictionary<string, string> _envCache = new();
+    private static readonly string[] _envNames = { "ANTHROPIC_API_KEY","ANTHROPIC_AUTH_TOKEN","ANTHROPIC_BASE_URL",
+        "ANTHROPIC_MODEL","ANTHROPIC_DEFAULT_OPUS_MODEL","ANTHROPIC_DEFAULT_SONNET_MODEL",
+        "ANTHROPIC_DEFAULT_HAIKU_MODEL","ANTHROPIC_DEFAULT_FABLE_MODEL" };
+
+    // ===== 技能/提示模板 =====
+
+    private static readonly (string Label, string Prompt)[] _skills =
+    {
+        ("📊 分析项目结构", "请分析当前项目的目录结构和技术栈"),
+        ("🔍 全面代码审计", "分析程序漏洞、内存泄漏、逻辑问题。第一步只提问题列出风险等级，第二步沟通后修复。覆盖致命错误/安全/泄漏/逻辑/性能/冗余六个层级。"),
+        ("📝 代码审查", "请审查以下代码，指出改进点"),
+        ("⚡ 性能优化建议", "请分析代码性能瓶颈，给出优化方案"),
+        ("🔒 安全检查", "请检查代码中的安全漏洞：注入风险、敏感泄露、权限越界"),
+        ("📖 解释代码逻辑", "请解释以下代码的功能和逻辑"),
+        ("🔧 重构建议", "请对以下代码给出重构建议"),
+        ("📄 生成文档", "请为这个项目生成README文档"),
+        ("💬 添加注释", "请为代码添加详细的中文注释"),
+        ("🧪 编写单元测试", "请为以下代码编写单元测试"),
+    };
+
+    // 中文标签 → 英文原文
+    private static readonly (string Label, string EnText)[] _tips =
+    {
+        ("逐步推理并解释", "think step by step and explain your reasoning"),
+        ("自检纠错复核答案", "double check your answer for errors"),
+        ("最大推理努力", "effort: max"),
+        ("组建专家团队协作", "create a team of 3 experts to solve this problem"),
+        ("主动提问不盲猜", "ask me clarifying questions if anything is unclear"),
+        ("简洁回答去废话", "be extremely concise and to the point"),
+        ("列出隐含假设", "list all the assumptions you are making"),
+        ("记入长期记忆", "save this to long-term memory"),
+        ("忽略无关上下文", "forget everything except the code I'm about to share"),
+        ("并行子代理执行", "run this task in parallel with 3 subagents"),
+    };
 
     public TerminalControl()
     {
         InitializeComponent();
+
+        // 填充下拉框
+        CmbSkills.Items.Clear();
+        CmbSkills.Items.Add(new ComboBoxItem { Content = "⚡ 快捷指令", Tag = "", IsSelected = true });
+        foreach (var s in _skills)
+            CmbSkills.Items.Add(new ComboBoxItem { Content = s.Label, Tag = s.Prompt, ToolTip = s.Prompt });
+
+        CmbTips.Items.Clear();
+        CmbTips.Items.Add(new ComboBoxItem { Content = "💡 提示技巧", Tag = "", IsSelected = true });
+        foreach (var t in _tips)
+            CmbTips.Items.Add(new ComboBoxItem { Content = t.Label, Tag = t.EnText, ToolTip = t.EnText });
+
         OutputBox.Loaded += (_, _) =>
         {
             var sv = GetVisualChild<ScrollViewer>(OutputBox);
@@ -38,120 +90,105 @@ public partial class TerminalControl : System.Windows.Controls.UserControl
         };
     }
 
+    private void Skill_Selected(object sender, SelectionChangedEventArgs e)
+    {
+        if (CmbSkills.SelectedItem is ComboBoxItem item && item.Tag is string prompt && prompt != "")
+        {
+            InputBox.Text = prompt;
+            InputBox.Focus();
+            InputBox.CaretIndex = InputBox.Text.Length;
+        }
+        CmbSkills.SelectedIndex = 0; // 重置回标题
+    }
+
+    private void Tip_Selected(object sender, SelectionChangedEventArgs e)
+    {
+        if (CmbTips.SelectedItem is ComboBoxItem item && item.Tag is string tip && tip != "")
+        {
+            var pos = InputBox.CaretIndex;
+            var prefix = string.IsNullOrEmpty(InputBox.Text) || InputBox.Text.EndsWith("\n") ? "" : "\n";
+            InputBox.Text = InputBox.Text.Insert(pos, prefix + tip + "\n");
+            InputBox.CaretIndex = pos + prefix.Length + tip.Length + 1;
+            InputBox.Focus();
+        }
+        CmbTips.SelectedIndex = 0;
+    }
+
     private void OnScrollChanged(object sender, ScrollChangedEventArgs e)
     {
         if (e.VerticalChange < 0 && e.VerticalOffset < 50 && _snapshotPos > 0)
-        {
             ShowMoreSnapshot(LoadMoreCount);
-        }
     }
+
+    // ===== 启动会话 =====
 
     public void StartSession(string workDir, string prompt, string? claudeOverride = null)
     {
         StopProcess();
         _currentDir = workDir;
         _isRunning = true;
-
-        // 隐藏占位文字
         TxtPlaceholder.Visibility = Visibility.Collapsed;
-
-        // 启动新段落（不清理旧内容，保留历史）
         NewOutputParagraph();
+
         var userPara = new Paragraph(new Run($"> {prompt}\n"))
         {
-            Foreground = BrushAccent,
-            Background = BrushUserBg,
-            Margin = new Thickness(0, 2, 0, 6),
-            LineHeight = 20,
-            Padding = new Thickness(8, 4, 8, 4)
+            Foreground = BrushAccent, Background = BrushUserBg,
+            Margin = new Thickness(0, 2, 0, 6), LineHeight = 20, Padding = new Thickness(8, 4, 8, 4)
         };
         OutputBox.Document.Blocks.Add(userPara);
         NewOutputParagraph();
 
         var isFirstUse = !Directory.Exists(Path.Combine(workDir, ".claude"));
         var args = new StringBuilder();
-
         if (!isFirstUse)
         {
             args.Append("--continue --permission-mode bypassPermissions");
-            if (!string.IsNullOrWhiteSpace(prompt))
-                args.Append($" -p \"{EscapeArg(prompt)}\"");
+            if (!string.IsNullOrWhiteSpace(prompt)) args.Append($" -p \"{EscapeArg(prompt)}\"");
         }
         else
         {
-            // 修复：首次使用也要绕过权限确认
-            var initPrompt = BuildInitPrompt(prompt, workDir);
-            args.Append($"--permission-mode bypassPermissions -p \"{EscapeArg(initPrompt)}\"");
+            args.Append($"--permission-mode bypassPermissions -p \"{EscapeArg(BuildInitPrompt(prompt, workDir))}\"");
         }
-
         args.Append(" --output-format stream-json --verbose");
-
-        if (!string.IsNullOrEmpty(_sessionId))
-        {
-            args.Append($" --resume {_sessionId}");
-        }
+        if (!string.IsNullOrEmpty(_sessionId)) args.Append($" --resume {_sessionId}");
 
         var claudeExe = claudeOverride ?? "claude";
         var psi = new ProcessStartInfo(claudeExe)
         {
             Arguments = args.ToString(),
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            RedirectStandardInput = true,
-            UseShellExecute = false,
-            CreateNoWindow = true,
-            WorkingDirectory = workDir,
-            StandardOutputEncoding = Encoding.UTF8,
-            StandardErrorEncoding = Encoding.UTF8
+            RedirectStandardOutput = true, RedirectStandardError = true, RedirectStandardInput = true,
+            UseShellExecute = false, CreateNoWindow = true, WorkingDirectory = workDir,
+            StandardOutputEncoding = Encoding.UTF8, StandardErrorEncoding = Encoding.UTF8
         };
 
-        // 显式传递 API 环境变量（解决子进程继承问题）
-        CopyEnv(psi, "ANTHROPIC_API_KEY");
-        CopyEnv(psi, "ANTHROPIC_AUTH_TOKEN");
-        CopyEnv(psi, "ANTHROPIC_BASE_URL");
-        CopyEnv(psi, "ANTHROPIC_MODEL");
-        CopyEnv(psi, "ANTHROPIC_DEFAULT_OPUS_MODEL");
-        CopyEnv(psi, "ANTHROPIC_DEFAULT_SONNET_MODEL");
-        CopyEnv(psi, "ANTHROPIC_DEFAULT_HAIKU_MODEL");
-        CopyEnv(psi, "ANTHROPIC_DEFAULT_FABLE_MODEL");
+        // 修复 P1：从缓存读取环境变量
+        foreach (var name in _envNames)
+        {
+            if (!_envCache.TryGetValue(name, out var val))
+            {
+                val = Environment.GetEnvironmentVariable(name, EnvironmentVariableTarget.Process)
+                   ?? Environment.GetEnvironmentVariable(name, EnvironmentVariableTarget.User)
+                   ?? Environment.GetEnvironmentVariable(name, EnvironmentVariableTarget.Machine) ?? "";
+                _envCache[name] = val;
+            }
+            if (!string.IsNullOrWhiteSpace(val)) psi.Environment[name] = val;
+        }
 
-        var apiKey = Environment.GetEnvironmentVariable("ANTHROPIC_API_KEY", EnvironmentVariableTarget.Process)
-                  ?? Environment.GetEnvironmentVariable("ANTHROPIC_API_KEY", EnvironmentVariableTarget.User);
-        var apiUrl = Environment.GetEnvironmentVariable("ANTHROPIC_BASE_URL", EnvironmentVariableTarget.Process)
-                  ?? Environment.GetEnvironmentVariable("ANTHROPIC_BASE_URL", EnvironmentVariableTarget.User);
         Logger.Info($"启动: claude {psi.Arguments}");
-        Logger.Info($"API URL: {apiUrl ?? "(未设置，默认 api.anthropic.com)"}");
-        Logger.Info($"API Key: {(string.IsNullOrEmpty(apiKey) ? "(未设置)" : apiKey[..Math.Min(8, apiKey.Length)] + "...")}");
-        _process = Process.Start(psi)
-            ?? throw new InvalidOperationException("无法启动 claude");
-
+        _process = Process.Start(psi) ?? throw new InvalidOperationException("无法启动 claude");
         _process.StandardInput.Close();
         _process.EnableRaisingEvents = true;
-        _process.Exited += (_, _) =>
-        {
-            Logger.Info("TRACE: Exited event fired");
-            // 不在 UI 线程等待，改用 BeginInvoke
-            Dispatcher.BeginInvoke(() =>
-            {
-                Logger.Info("TRACE: BeginInvoke OnProcessExited START");
-                OnProcessExited();
-                Logger.Info("TRACE: BeginInvoke OnProcessExited END");
-            });
-        };
-
+        _process.Exited += (_, _) => Dispatcher.BeginInvoke(OnProcessExited);
         UpdateUIState();
-        _ = Task.Run(() => ReadOutputAsync());
+        _ = Task.Run(ReadOutputAsync);
     }
+
+    // ===== 读取输出 =====
 
     private async Task ReadOutputAsync()
     {
         if (_process == null) return;
-        try
-        {
-            var stdoutTask = ReadStreamAsync(_process.StandardOutput, false);
-            var stderrTask = ReadStreamAsync(_process.StandardError, true);
-            await Task.WhenAll(stdoutTask, stderrTask);
-        }
+        try { await Task.WhenAll(ReadStreamAsync(_process.StandardOutput, false), ReadStreamAsync(_process.StandardError, true)); }
         catch (Exception ex) { Logger.Error("ReadOutput异常", ex); }
     }
 
@@ -165,211 +202,83 @@ public partial class TerminalControl : System.Windows.Controls.UserControl
             var captured = line;
             Dispatcher.Invoke(() => ProcessLine(captured, isStderr));
         }
-        Logger.Info("TRACE: ReadStreamAsync END (stream closed)");
     }
 
-    private int _rawCount;
     private void ProcessLine(string line, bool isStderr)
     {
-        // thinking_tokens 不记日志（量太大，每秒数百条）
-        if (!line.Contains("thinking_tokens"))
-        {
-            var isError = line.Contains("error") || line.Contains("api_retry") || line.Contains("authentication");
-            var logLine = isError ? line : line[..Math.Min(line.Length, 200)];
-            Logger.Info(isError ? $"RAW: {logLine}" : $"raw: {logLine}");
-        }
-        else if (++_rawCount % 100 == 0)
-        {
-            Logger.Info($"thinking_tokens: {_rawCount} lines skipped");
-        }
-
-        if (isStderr)
-        {
-            AppendText($"  {line}\n", BrushSystem);
-            return;
-        }
+        if (isStderr) { AppendText($"  {line}\n", BrushSystem); return; }
 
         try
         {
             using var doc = JsonDocument.Parse(line);
             var root = doc.RootElement;
             var type = root.TryGetProperty("type", out var t) ? t.GetString() : null;
-
-            if (_sessionId == null && root.TryGetProperty("session_id", out var sid))
-                _sessionId = sid.GetString();
+            if (_sessionId == null && root.TryGetProperty("session_id", out var sid)) _sessionId = sid.GetString();
 
             switch (type)
             {
                 case "assistant":
-                    var content = root.TryGetProperty("message", out var msg)
-                        && msg.TryGetProperty("content", out var ct) ? ct : default;
+                    var content = root.TryGetProperty("message", out var msg) && msg.TryGetProperty("content", out var ct) ? ct : default;
                     AppendStreamText(ExtractContentText(content));
                     break;
-
                 case "result":
-                    Logger.Info("TRACE: result START");
-                    FinalizeStreamingOutput();
-                    Logger.Info("TRACE: result FinalizeStreamingOutput done");
-                    if (root.TryGetProperty("result", out var res))
-                    {
-                        var rt = res.GetString();
-                        Logger.Info($"TRACE: result text len={rt?.Length ?? 0}");
-                        if (!string.IsNullOrWhiteSpace(rt) && rt.Length < 200)
-                            AppendText(rt, BrushNormal);
-                    }
-                    Logger.Info("TRACE: result END, waiting for exit");
+                    // 修复 L1：不用 MarkdownRenderer，只结束当前段落
+                    NewOutputParagraph();
                     break;
-
                 case "system":
-                    var subtype = root.TryGetProperty("subtype", out var st) ? st.GetString() : "";
-                    if (subtype == "thinking_tokens") break;
+                    if (root.TryGetProperty("subtype", out var st) && st.GetString() == "thinking_tokens") break;
                     var sc = root.TryGetProperty("content", out var c) ? c.GetString() : "";
-                    if (!string.IsNullOrWhiteSpace(sc))
-                        AppendText($"  {sc}", BrushSystem);
+                    if (!string.IsNullOrWhiteSpace(sc)) AppendText($"  {sc}", BrushSystem);
                     break;
-
                 case "done":
-                    FinalizeStreamingOutput();
+                    NewOutputParagraph();
                     break;
             }
         }
-        catch (JsonException)
-        {
-            AppendText(line + "\n", BrushNormal);
-        }
+        catch (JsonException) { AppendText(line + "\n", BrushNormal); }
     }
 
-    /// <summary>
-    /// 追加流式文本到当前段落
-    /// </summary>
+    // ===== 流式文本 =====
+
     private void AppendStreamText(string text)
     {
         if (string.IsNullOrEmpty(text)) return;
-
-        // 压缩连续空行：3+ 个连续换行 → 1 个换行
         text = RegexCompressNewlines(text);
 
-        // 去重：新文本以累积文本开头时只取增量
-        if (!string.IsNullOrEmpty(_accumulated) && text.StartsWith(_accumulated))
-        {
-            var delta = text[_accumulated.Length..];
-            if (string.IsNullOrEmpty(delta)) return;
-            text = delta;
-        }
+        // 修复 P2：O(1) 长度切片去重
+        if (_accumulatedLen > 0 && text.Length > _accumulatedLen)
+            text = text[_accumulatedLen..];
+        else if (_accumulatedLen > 0) return;
 
         if (_currentRun == null || _currentPara == null)
         {
             _currentPara = new Paragraph { Margin = new Thickness(0), LineHeight = 18 };
-            _currentRun = new Run(text);
-            _currentPara.Inlines.Add(_currentRun);
+            _currentRun = new Run(text); _currentPara.Inlines.Add(_currentRun);
             OutputBox.Document.Blocks.Add(_currentPara);
         }
-        else
-        {
-            _currentRun.Text += text;
-        }
+        else _currentRun.Text += text;
 
-        _accumulated += text;
+        _accumulated += text; _accumulatedLen = _accumulated.Length;
         if (OutputBox.Document.Blocks.Count > MaxBlocks * 2) TrimOldBlocks();
         OutputBox.ScrollToEnd();
     }
 
-    private static string RegexCompressNewlines(string input)
+    private static string RegexCompressNewlines(string input) => Regex.Replace(input, @"\n{3,}", "\n");
+
+    private void NewOutputParagraph() { _currentPara = null; _currentRun = null; _accumulated = ""; _accumulatedLen = 0; }
+
+    private void AppendText(string text, SolidColorBrush color)
     {
-        // 3+ 连续换行 → 1 换行；首尾空白保留（增量追加需要）
-        return Regex.Replace(input, @"\n{3,}", "\n");
-    }
-
-    /// <summary>
-    /// 替换当前段落内容（用于 result 类型覆盖流式内容）
-    /// </summary>
-    private void ReplaceCurrentPara(string text)
-    {
-        text = RegexCompressNewlines(text);
-
-        if (_currentPara != null)
-        {
-            _currentPara.Inlines.Clear();
-            _currentRun = new Run(text);
-            _currentPara.Inlines.Add(_currentRun);
-        }
-        else
-        {
-            _currentRun = new Run(text);
-            _currentPara = new Paragraph { Margin = new Thickness(0), LineHeight = 18 };
-            _currentPara.Inlines.Add(_currentRun);
-            OutputBox.Document.Blocks.Add(_currentPara);
-        }
-        _accumulated = text;
-        OutputBox.ScrollToEnd();
-    }
-
-    /// <summary>
-    /// 开始新输出段落（消息切换时）
-    /// </summary>
-    private void NewOutputParagraph()
-    {
-        _currentPara = null;
-        _currentRun = null;
-        _accumulated = "";
-    }
-
-    /// <summary>
-    /// 流式输出完成后，用 markdown 渲染替换纯文本段落
-    /// </summary>
-    private void FinalizeStreamingOutput()
-    {
-        if (_currentPara == null || string.IsNullOrWhiteSpace(_accumulated))
-        {
-            NewOutputParagraph();
-            return;
-        }
-
-        var markdown = _accumulated;
-        var oldPara = _currentPara;
-
-        // 移除旧的纯文本段落
-        if (OutputBox.Document.Blocks.Contains(oldPara))
-            OutputBox.Document.Blocks.Remove(oldPara);
-
-        // 用 markdown 渲染追加到末尾
-        var renderedBlocks = MarkdownRenderer.Render(markdown);
-        foreach (var block in renderedBlocks)
-            OutputBox.Document.Blocks.Add(block);
-
-        // 分隔线
-        var sep = new Paragraph(new Run("─".PadRight(40, '─')))
-        {
-            Foreground = new SolidColorBrush(System.Windows.Media.Color.FromRgb(0x33, 0x44, 0x55)),
-            Margin = new Thickness(0, 6, 0, 10)
-        };
-        OutputBox.Document.Blocks.Add(sep);
-
+        OutputBox.Document.Blocks.Add(new Paragraph(new Run(text)) { Foreground = color, Margin = new Thickness(0), LineHeight = 18 });
         NewOutputParagraph();
         OutputBox.ScrollToEnd();
     }
 
-    private void AppendText(string text, SolidColorBrush color)
-    {
-        var para = new Paragraph(new Run(text))
-        {
-            Foreground = color,
-            Margin = new Thickness(0),
-            LineHeight = 18
-        };
-        OutputBox.Document.Blocks.Add(para);
-        NewOutputParagraph(); // 后续流式内容用新段落
-        OutputBox.ScrollToEnd();
-    }
+    // ===== 历史快照 =====
 
-    private const int InitialShow = 40; // 首次显示 40 条
-    private const int LoadMoreCount = 20; // 每次上滚加载 20 条
-
-    /// <summary>
-    /// 加载完整历史快照，只显示尾部，上滚时动态加载
-    /// </summary>
     public void LoadFullSnapshot(List<(string role, string content)> allMessages)
     {
+        OutputBox.Document.Blocks.Clear();
         _fullSnapshot = allMessages;
         _snapshotPos = allMessages.Count;
         ShowMoreSnapshot(InitialShow);
@@ -381,215 +290,178 @@ public partial class TerminalControl : System.Windows.Controls.UserControl
         var start = Math.Max(0, _snapshotPos - count);
         var batch = _fullSnapshot.Skip(start).Take(_snapshotPos - start).ToList();
         _snapshotPos = start;
-
-        // 保存当前滚动位置
         var scrollPos = OutputBox.VerticalOffset;
 
-        // 在文档开头插入旧消息
         for (int i = batch.Count - 1; i >= 0; i--)
         {
             var msg = batch[i];
-            var color = msg.role == "user"
-                ? System.Windows.Media.Color.FromRgb(0xff, 0xf0, 0x60)
-                : System.Windows.Media.Color.FromRgb(0xcc, 0xcc, 0xcc);
             var prefix = msg.role == "user" ? "> " : "";
             var para = new Paragraph(new Run($"{prefix}{msg.content}\n"))
             {
-                Foreground = new SolidColorBrush(color),
-                Margin = new Thickness(0, 0, 0, 4),
-                LineHeight = 20
+                Foreground = msg.role == "user" ? BrushAccent : BrushNormal,
+                Margin = new Thickness(0, 0, 0, 4), LineHeight = 20
             };
-            if (msg.role == "user")
-            {
-                para.Background = new SolidColorBrush(System.Windows.Media.Color.FromRgb(0x1a, 0x3d, 0x1a));
-                para.Padding = new Thickness(8, 4, 8, 4);
-                para.Margin = new Thickness(0, 2, 0, 6);
-            }
-            OutputBox.Document.Blocks.InsertBefore(OutputBox.Document.Blocks.FirstBlock, para);
+            if (msg.role == "user") { para.Background = BrushUserBg; para.Padding = new Thickness(8, 4, 8, 4); para.Margin = new Thickness(0, 2, 0, 6); }
+            if (OutputBox.Document.Blocks.FirstBlock != null)
+                OutputBox.Document.Blocks.InsertBefore(OutputBox.Document.Blocks.FirstBlock, para);
+            else OutputBox.Document.Blocks.Add(para);
         }
 
-        // 恢复滚动位置（补偿新增内容的高度）
         Dispatcher.BeginInvoke(new Action(() =>
-        {
-            OutputBox.UpdateLayout();
-            OutputBox.ScrollToVerticalOffset(scrollPos + 100); // 补偿新插入的偏移
-        }), System.Windows.Threading.DispatcherPriority.Background);
+        { OutputBox.UpdateLayout(); OutputBox.ScrollToVerticalOffset(scrollPos + 100); }),
+            System.Windows.Threading.DispatcherPriority.Background);
 
-        // 如果还有更多
         if (_snapshotPos > 0)
         {
             var hint = new Paragraph(new Run($"▲ 向上滚动加载更多（剩余 {_snapshotPos} 条）"))
-            {
-                Foreground = new SolidColorBrush(System.Windows.Media.Color.FromRgb(0x55, 0x55, 0x55)),
-                FontSize = 11,
-                Margin = new Thickness(0, 2, 0, 2)
-            };
-            OutputBox.Document.Blocks.InsertBefore(OutputBox.Document.Blocks.FirstBlock, hint);
+            { Foreground = new SolidColorBrush(System.Windows.Media.Color.FromRgb(0x55, 0x55, 0x55)), FontSize = 11 };
+            if (OutputBox.Document.Blocks.FirstBlock != null)
+                OutputBox.Document.Blocks.InsertBefore(OutputBox.Document.Blocks.FirstBlock, hint);
+            else OutputBox.Document.Blocks.Add(hint);
         }
     }
 
-    public void AppendSnapshot(string role, string content, System.Windows.Media.Color color)
-    {
-        TxtPlaceholder.Visibility = Visibility.Collapsed;
-
-        if (role == "user")
-        {
-            var para = new Paragraph(new Run($"> {content}\n"))
-            {
-                Foreground = new SolidColorBrush(System.Windows.Media.Color.FromRgb(0xff, 0xf0, 0x60)),
-                Background = new SolidColorBrush(System.Windows.Media.Color.FromRgb(0x1a, 0x3d, 0x1a)),
-                Margin = new Thickness(0, 2, 0, 6),
-                LineHeight = 20,
-                Padding = new Thickness(8, 4, 8, 4)
-            };
-            OutputBox.Document.Blocks.Add(para);
-        }
-        else if (role == "assistant")
-        {
-            // AI 消息：完整 markdown 渲染
-            var blocks = MarkdownRenderer.Render(content);
-            foreach (var block in blocks)
-                OutputBox.Document.Blocks.Add(block);
-
-            // 分隔线
-            OutputBox.Document.Blocks.Add(new Paragraph(new Run("─".PadRight(40, '─')))
-            {
-                Foreground = new SolidColorBrush(System.Windows.Media.Color.FromRgb(0x33, 0x44, 0x55)),
-                Margin = new Thickness(0, 6, 0, 10)
-            });
-        }
-        else
-        {
-            // 系统消息：灰色
-            var para = new Paragraph(new Run($"  {content}"))
-            {
-                Foreground = new SolidColorBrush(color),
-                Margin = new Thickness(0, 0, 0, 2)
-            };
-            OutputBox.Document.Blocks.Add(para);
-        }
-    }
+    // ===== 裁剪 =====
 
     private void TrimOldBlocks()
     {
         var blocks = OutputBox.Document.Blocks;
-        while (blocks.Count > MaxBlocks)
-            blocks.Remove(blocks.FirstBlock);
-        if (blocks.Count > MaxBlocks / 2)
-            Logger.Info($"Trimmed blocks: {blocks.Count} remaining");
+        while (blocks.Count > MaxBlocks) blocks.Remove(blocks.FirstBlock);
     }
+
+    // ===== 进程生命周期 =====
 
     private void OnProcessExited()
     {
-        Logger.Info("TRACE: OnProcessExited 1/5 _isRunning=false");
         _isRunning = false;
-        Logger.Info("TRACE: OnProcessExited 2/5 UpdateUIState");
         UpdateUIState();
-        Logger.Info("TRACE: OnProcessExited 3/5 check exitCode");
         TrimOldBlocks();
-        if (_process?.ExitCode != 0)
-            AppendText($"\n[进程退出, 代码: {_process?.ExitCode}]\n", BrushError);
-        Logger.Info("TRACE: OnProcessExited 4/5 Dispose (background)");
-        var p = _process;
-        _process = null;
-        _ = Task.Run(() => { try { p?.Dispose(); } catch { } Logger.Info("TRACE: Dispose done in background"); });
-        Logger.Info("TRACE: OnProcessExited 5/5 done");
-    }
-
-    private void InputBox_KeyDown(object sender, System.Windows.Input.KeyEventArgs e)
-    {
-        // Ctrl+Enter = 发送
-        if (e.Key == Key.Enter && Keyboard.Modifiers == ModifierKeys.Control)
-        {
-            e.Handled = true;
-            SendMessage();
-        }
-    }
-
-    private void Send_Click(object sender, RoutedEventArgs e) => SendMessage();
-    private void Stop_Click(object sender, RoutedEventArgs e) { StopProcess(); UpdateUIState(); }
-
-    private void InputBox_TextChanged(object sender, TextChangedEventArgs e)
-    {
-        BtnSend.IsEnabled = !_isRunning && !string.IsNullOrWhiteSpace(InputBox.Text);
-    }
-
-    private void SendMessage()
-    {
-        var prompt = InputBox.Text.Trim();
-        if (string.IsNullOrWhiteSpace(prompt) || _isRunning) return;
-
-        InputBox.Text = "";
-        try { StartSession(_currentDir, prompt, ClaudePath); }
-        catch (Exception ex) { AppendText($"启动失败: {ex.Message}\n", BrushError); }
+        // 修复 F1/L3：只在 OnProcessExited 中 Dispose
+        var p = _process; _process = null;
+        _ = Task.Run(() => { try { p?.Dispose(); } catch { } });
     }
 
     private void StopProcess()
     {
+        // 修复 F1/L3：只 Kill，不 Dispose（Dispose 统一在 OnProcessExited 中）
         if (_process != null && !_process.HasExited)
         {
-            try { _process.Kill(entireProcessTree: true); } catch { }
-            _process.Dispose();
+            try { _process.Kill(true); } catch { }
+            _process = null; // 不 Dispose，由 Exited 事件 → OnProcessExited 处理
         }
-        _process = null;
         _isRunning = false;
     }
 
     private void UpdateUIState()
     {
-        BtnSend.IsEnabled = !_isRunning;
-        InputBox.IsEnabled = !_isRunning;
+        BtnSend.IsEnabled = !_isRunning; InputBox.IsEnabled = !_isRunning;
         BtnStop.Visibility = _isRunning ? Visibility.Visible : Visibility.Collapsed;
         BtnSend.Content = _isRunning ? "处理中..." : "发送";
+        if (!_isRunning && !string.IsNullOrWhiteSpace(_currentDir)) BtnSend.Visibility = Visibility.Visible;
     }
+
+    // ===== 用户输入 =====
+
+    private void InputBox_KeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+    {
+        if (e.Key == Key.Enter && Keyboard.Modifiers == ModifierKeys.Control) { e.Handled = true; SendMessage(); }
+        else if (e.Key == Key.L && Keyboard.Modifiers == ModifierKeys.Control) { e.Handled = true; ClearOutput(); }
+        else if (e.Key == Key.S && Keyboard.Modifiers == ModifierKeys.Control) { e.Handled = true; ExportHtml(); }
+        else if (e.Key == Key.F && Keyboard.Modifiers == ModifierKeys.Control) { e.Handled = true; SearchInOutput(); }
+    }
+
+    public void ClearOutput()
+    {
+        OutputBox.Document.Blocks.Clear();
+        _fullSnapshot = null; _snapshotPos = 0;
+        TxtPlaceholder.Visibility = Visibility.Visible;
+    }
+
+    private async void ExportHtml()
+    {
+        var dlg = new Microsoft.Win32.SaveFileDialog { Filter = "HTML|*.html", FileName = $"对话导出_{DateTime.Now:yyyyMMddHHmm}.html" };
+        if (dlg.ShowDialog() != true) return;
+
+        var sb = new StringBuilder();
+        sb.AppendLine("<!DOCTYPE html><html><head><meta charset=\"utf-8\"><style>");
+        sb.AppendLine("body{font-family:'Segoe UI',sans-serif;background:#1a1a2e;color:#ccc;max-width:900px;margin:auto;padding:20px}");
+        sb.AppendLine(".user{color:#fff060;background:#1e1e1e;padding:8px 12px;border-radius:8px;margin:8px 0}");
+        sb.AppendLine(".ai{color:#ccc;margin:8px 0;padding:4px 0}");
+        sb.AppendLine("pre{background:#0c0c0c;padding:12px;border-radius:6px;overflow-x:auto}");
+        sb.AppendLine("</style></head><body><h2>Claude 对话导出</h2>");
+
+        foreach (var block in OutputBox.Document.Blocks)
+        {
+            if (block is Paragraph p)
+            {
+                var text = new TextRange(p.ContentStart, p.ContentEnd).Text;
+                if (text.StartsWith("> ")) sb.AppendLine($"<div class=\"user\">{System.Net.WebUtility.HtmlEncode(text[2..])}</div>");
+                else if (!text.StartsWith("─")) sb.AppendLine($"<div class=\"ai\">{System.Net.WebUtility.HtmlEncode(text)}</div>");
+            }
+        }
+        sb.AppendLine("</body></html>");
+        await File.WriteAllTextAsync(dlg.FileName, sb.ToString());
+    }
+
+    private void SearchInOutput()
+    {
+        // 简化搜索：焦点移到输出区，用户 Ctrl+F 触发浏览器式查找
+        OutputBox.Focus();
+    }
+
+    private void Send_Click(object sender, RoutedEventArgs e) => SendMessage();
+    private void Stop_Click(object sender, RoutedEventArgs e) { StopProcess(); UpdateUIState(); }
+    private void InputBox_TextChanged(object sender, TextChangedEventArgs e) { BtnSend.IsEnabled = !_isRunning && !string.IsNullOrWhiteSpace(InputBox.Text); }
+
+    private void SendMessage()
+    {
+        var prompt = InputBox.Text.Trim();
+        if (string.IsNullOrWhiteSpace(prompt) || _isRunning) return;
+        InputBox.Text = "";
+        try { StartSession(_currentDir, prompt, ClaudePath); } catch (Exception ex) { AppendText($"启动失败: {ex.Message}\n", BrushError); }
+    }
+
+    // ===== 公共 =====
 
     public string? ClaudePath { get; set; }
-
-    public void Activate(string workDir)
+    public void Activate(string workDir) { _currentDir = workDir; TxtPlaceholder.Visibility = Visibility.Collapsed; if (!_isRunning) { InputBox.IsEnabled = true; BtnSend.IsEnabled = !string.IsNullOrWhiteSpace(InputBox.Text); BtnSend.Visibility = Visibility.Visible; CmbSkills.IsEnabled = true; CmbSkills.Visibility = Visibility.Visible; CmbTips.IsEnabled = true; CmbTips.Visibility = Visibility.Visible; } InputBox.Focus(); }
+    public void ScrollToEnd() { Dispatcher.BeginInvoke(new Action(() => { OutputBox.UpdateLayout(); OutputBox.ScrollToEnd(); }), System.Windows.Threading.DispatcherPriority.Background); }
+    // ===== 拖拽文件 =====
+    private void OnDragOver(object sender, System.Windows.DragEventArgs e)
     {
-        _currentDir = workDir;
-        if (!_isRunning)
+        e.Effects = e.Data.GetDataPresent(System.Windows.DataFormats.FileDrop) ? System.Windows.DragDropEffects.Copy : System.Windows.DragDropEffects.None;
+        e.Handled = true;
+    }
+
+    private void OnDrop(object sender, System.Windows.DragEventArgs e)
+    {
+        if (e.Data.GetDataPresent(System.Windows.DataFormats.FileDrop) && e.Data.GetData(System.Windows.DataFormats.FileDrop) is string[] files)
         {
-            InputBox.IsEnabled = true;
-            BtnSend.IsEnabled = !string.IsNullOrWhiteSpace(InputBox.Text);
+            foreach (var f in files)
+            {
+                InputBox.Text += (InputBox.Text.Length > 0 && !InputBox.Text.EndsWith("\n") ? "\n" : "") + f + "\n";
+            }
+            InputBox.Focus();
+            InputBox.CaretIndex = InputBox.Text.Length;
         }
-        InputBox.Focus();
     }
 
-    /// <summary>
-    /// 滚动输出区到最底部
-    /// </summary>
-    public void ScrollToEnd()
-    {
-        Dispatcher.BeginInvoke(new Action(() =>
-        {
-            OutputBox.UpdateLayout();
-            OutputBox.ScrollToEnd();
-        }), System.Windows.Threading.DispatcherPriority.Background);
-    }
+    public void Dispose() { if (_process != null) { try { _process.Kill(true); } catch { } _process.Dispose(); } }
 
-    // === 静态辅助 ===
+    // ===== 静态辅助 =====
 
     private static string ExtractContentText(JsonElement content)
     {
-        if (content.ValueKind == JsonValueKind.String)
-            return content.GetString() ?? "";
-
+        if (content.ValueKind == JsonValueKind.String) return content.GetString() ?? "";
         if (content.ValueKind == JsonValueKind.Array)
         {
             var sb = new StringBuilder();
             foreach (var block in content.EnumerateArray())
             {
                 var bt = block.TryGetProperty("type", out var t) ? t.GetString() : "";
-                if (bt == "text" && block.TryGetProperty("text", out var txt))
-                    sb.Append(txt.GetString());
-                else if (bt == "thinking" && block.TryGetProperty("thinking", out var th))
-                    sb.Append($"\n[思考] {th.GetString()}\n");
-                else if (bt == "tool_use")
-                {
-                    var name = block.TryGetProperty("name", out var n) ? n.GetString() ?? "tool" : "tool";
-                    sb.Append($"\n[{name}]\n");
-                }
+                if (bt == "text" && block.TryGetProperty("text", out var txt)) sb.Append(txt.GetString());
+                else if (bt == "thinking" && block.TryGetProperty("thinking", out var th)) sb.Append($"\n[思考] {th.GetString()}\n");
+                else if (bt == "tool_use") { var n = block.TryGetProperty("name", out var bn) ? bn.GetString() ?? "tool" : "tool"; sb.Append($"\n[{n}]\n"); }
             }
             return sb.ToString();
         }
@@ -600,26 +472,14 @@ public partial class TerminalControl : System.Windows.Controls.UserControl
     {
         if (string.IsNullOrEmpty(arg)) return "";
         var sb = new StringBuilder();
-        foreach (char c in arg)
-            sb.Append(c is '\r' or '\n' or '\0' ? ' ' : c);
+        foreach (char c in arg) sb.Append(c is '\r' or '\n' or '\0' ? ' ' : c);
         var clean = sb.ToString();
         if (clean.Length > 8000) clean = clean[..8000];
         return clean.Replace("\\", "\\\\").Replace("\"", "\\\"");
     }
 
-    private static string BuildInitPrompt(string userPrompt, string workDir)
-    {
-        var dirName = Path.GetFileName(workDir.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
-        return $"""
-            ## 项目初始化
-            这是你第一次在当前项目目录下工作。请浏览项目结构并分析代码，在 .claude/CLAUDE.md 中记录项目信息。
-            今后的所有记忆保存在 .claude/ 目录下。
-            ---
-            用户的需求：{userPrompt}
-            """;
-    }
-
-    public void Dispose() => StopProcess();
+    private static string BuildInitPrompt(string userPrompt, string workDir) =>
+        $"""## 项目初始化 这是你第一次在当前项目目录下工作。请浏览项目结构并分析代码，在 .claude/CLAUDE.md 中记录项目信息。今后的所有记忆保存在 .claude/ 目录下。---用户的需求：{userPrompt}""";
 
     private static T? GetVisualChild<T>(DependencyObject parent) where T : DependencyObject
     {
@@ -631,22 +491,5 @@ public partial class TerminalControl : System.Windows.Controls.UserControl
             if (result != null) return result;
         }
         return null;
-    }
-
-    private static void CopyEnv(ProcessStartInfo psi, string name)
-    {
-        // 三个级别全查：进程 > 用户注册表 > 系统注册表
-        var val = Environment.GetEnvironmentVariable(name, EnvironmentVariableTarget.Process)
-               ?? Environment.GetEnvironmentVariable(name, EnvironmentVariableTarget.User)
-               ?? Environment.GetEnvironmentVariable(name, EnvironmentVariableTarget.Machine);
-        if (!string.IsNullOrWhiteSpace(val))
-        {
-            psi.Environment[name] = val;
-            Logger.Info($"env {name}: {val[..Math.Min(val.Length, 30)]}...");
-        }
-        else
-        {
-            Logger.Info($"env {name}: (未设置)");
-        }
     }
 }

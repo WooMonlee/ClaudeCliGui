@@ -335,10 +335,6 @@ public partial class SetupPage : System.Windows.Controls.UserControl
             Microsoft.Win32.Registry.SetValue(@"HKEY_CLASSES_ROOT\Directory\Background\shell\ClaudeGui\command", "",
                 $"\"{exePath}\" --add-project \"%V\"");
 
-            // 清理旧的 ClaudeGUI（大写）注册表项
-            try { Microsoft.Win32.Registry.ClassesRoot.DeleteSubKeyTree(@"Directory\shell\ClaudeGUI", false); } catch { }
-            try { Microsoft.Win32.Registry.ClassesRoot.DeleteSubKeyTree(@"Directory\Background\shell\ClaudeGUI", false); } catch { }
-
             Logger.Info("右键菜单已安装");
         }
         catch (Exception ex)
