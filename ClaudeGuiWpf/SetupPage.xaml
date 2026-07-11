@@ -85,7 +85,15 @@
                                    MouseLeftButtonDown="OpenDeepSeek_Click">
                             &#128279; 打开 DeepSeek 获取 API Key (platform.deepseek.com/api_keys)
                         </TextBlock>
-                        <TextBlock Text="API 端点地址" FontSize="11" Foreground="#8892b0" Margin="44,10,0,2"/>
+                        <TextBlock Text="API 提供商" FontSize="11" Foreground="#8892b0" Margin="44,10,0,2"/>
+                        <ComboBox x:Name="CmbProvider" Margin="44,0,0,0" Height="28" FontSize="12"
+                                  Background="#0c0c0c" Foreground="#64ffda" BorderBrush="#333"
+                                  SelectionChanged="Provider_Selected" IsEnabled="False">
+                            <ComboBoxItem Content="DeepSeek（国内）" Tag="https://api.deepseek.com/anthropic"/>
+                            <ComboBoxItem Content="Anthropic（官方）" Tag="https://api.anthropic.com"/>
+                            <ComboBoxItem Content="自定义" Tag=""/>
+                        </ComboBox>
+                        <TextBlock Text="API 端点地址" FontSize="11" Foreground="#8892b0" Margin="44,6,0,2"/>
                         <TextBox x:Name="ApiUrlInput" Background="#0c0c0c" Foreground="#ff8c00"
                                  FontFamily="Consolas" FontSize="12" Padding="8,6"
                                  BorderBrush="#333" CaretBrush="#ff8c00"

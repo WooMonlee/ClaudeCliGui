@@ -70,6 +70,8 @@
                         <ComboBox x:Name="CmbTips" Width="130" Height="26" FontSize="11" Margin="24,0,0,0"
                                   Background="#0f3460" Foreground="#ff8c00" BorderBrush="#233554"
                                   SelectionChanged="Tip_Selected" IsEnabled="False" Visibility="Collapsed"/>
+                        <TextBlock x:Name="TxtStats" Text="" Foreground="#64ffda" FontSize="10"
+                                   VerticalAlignment="Center" Margin="40,0,0,0"/>
                     </StackPanel>
                     <StackPanel Grid.Column="2" Orientation="Horizontal" Margin="0,0,24,0">
                         <TextBlock Text="Ctrl+Enter 发送" Foreground="#666666" FontSize="11"

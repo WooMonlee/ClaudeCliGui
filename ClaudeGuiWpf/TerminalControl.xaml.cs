@@ -22,6 +22,8 @@ public partial class TerminalControl : System.Windows.Controls.UserControl
     private const int MaxBlocks = 200;
     private List<(string role, string content)>? _fullSnapshot;
     private int _snapshotPos;
+    private int _sessionInputTokens, _sessionOutputTokens;
+    private decimal _sessionCost;
     private const int InitialShow = 40;
     private const int LoadMoreCount = 20;
 
@@ -222,8 +224,16 @@ public partial class TerminalControl : System.Windows.Controls.UserControl
                     AppendStreamText(ExtractContentText(content));
                     break;
                 case "result":
-                    // 修复 L1：不用 MarkdownRenderer，只结束当前段落
                     NewOutputParagraph();
+                    // 提取 Token/费用统计（B: Token 追踪）
+                    if (root.TryGetProperty("usage", out var usage))
+                    {
+                        _sessionInputTokens += usage.TryGetProperty("input_tokens", out var it) ? it.GetInt32() : 0;
+                        _sessionOutputTokens += usage.TryGetProperty("output_tokens", out var ot) ? ot.GetInt32() : 0;
+                        if (usage.TryGetProperty("total_cost_usd", out var tc) && tc.TryGetDecimal(out var cost))
+                            _sessionCost += cost;
+                    }
+                    UpdateStatsDisplay();
                     break;
                 case "system":
                     if (root.TryGetProperty("subtype", out var st) && st.GetString() == "thinking_tokens") break;
@@ -368,6 +378,14 @@ public partial class TerminalControl : System.Windows.Controls.UserControl
         else if (e.Key == Key.L && Keyboard.Modifiers == ModifierKeys.Control) { e.Handled = true; ClearOutput(); }
         else if (e.Key == Key.S && Keyboard.Modifiers == ModifierKeys.Control) { e.Handled = true; ExportHtml(); }
         else if (e.Key == Key.F && Keyboard.Modifiers == ModifierKeys.Control) { e.Handled = true; SearchInOutput(); }
+    }
+
+    private void UpdateStatsDisplay()
+    {
+        if (_sessionCost == 0 && _sessionInputTokens == 0) { TxtStats.Text = ""; return; }
+        var costStr = _sessionCost > 0 ? $"$ {_sessionCost:F4}" : "";
+        var tokenStr = $"{_sessionInputTokens / 1000}K↑ {_sessionOutputTokens / 1000}K↓";
+        TxtStats.Text = _sessionCost > 0 ? $"{costStr} · {tokenStr}" : tokenStr;
     }
 
     public void ClearOutput()

@@ -123,7 +123,7 @@ public partial class SetupPage : System.Windows.Controls.UserControl
         else
         {
             _apiOk = false;
-            if (_claudeOk) { ApiStatus.Text = "需要 DeepSeek API Key"; ApiUrlInput.IsEnabled = true; ApiKeyInput.IsEnabled = true; BtnSaveApi.IsEnabled = true; }
+            if (_claudeOk) { ApiStatus.Text = "需要 DeepSeek API Key"; ApiUrlInput.IsEnabled = true; ApiKeyInput.IsEnabled = true; BtnSaveApi.IsEnabled = true; CmbProvider.IsEnabled = true; }
             else { ApiStatus.Text = "等待 Claude CLI 就绪..."; }
         }
         return Task.CompletedTask;
@@ -174,7 +174,7 @@ public partial class SetupPage : System.Windows.Controls.UserControl
                 ApiStatus.Text = "需要 DeepSeek API Key";
                 ApiStatus.Foreground = new SolidColorBrush(System.Windows.Media.Color.FromRgb(0x88, 0x92, 0xb0));
                 ApiIcon.Foreground = new SolidColorBrush(System.Windows.Media.Color.FromRgb(0x64, 0xff, 0xda));
-                ApiUrlInput.IsEnabled = true; ApiKeyInput.IsEnabled = true; BtnSaveApi.IsEnabled = true;
+                ApiUrlInput.IsEnabled = true; ApiKeyInput.IsEnabled = true; BtnSaveApi.IsEnabled = true; CmbProvider.IsEnabled = true;
             }
 
             TxtSubtitle.Text = "环境安装完成，请配置 API Key";
@@ -309,6 +309,12 @@ public partial class SetupPage : System.Windows.Controls.UserControl
             ApiSaveStatus.Foreground = new SolidColorBrush(System.Windows.Media.Color.FromRgb(0xff, 0x6b, 0x6b));
             ApiSaveStatus.Visibility = Visibility.Visible;
         }
+    }
+
+    private void Provider_Selected(object sender, SelectionChangedEventArgs e)
+    {
+        if (CmbProvider.SelectedItem is ComboBoxItem item && item.Tag is string url)
+            ApiUrlInput.Text = url;
     }
 
     private void OpenDeepSeek_Click(object sender, System.Windows.Input.MouseButtonEventArgs e)
