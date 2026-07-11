@@ -1,6 +1,7 @@
 <p align="center">
   <h1 align="center">ClaudeCliGui</h1>
-  <p align="center">Windows 原生 Claude Code CLI 图形外壳</p>
+  <p align="center">Windows 原生 Claude Code CLI 图形外壳<br>
+  <sub>无需 CC-switch 等代理工具，打开即用，全程国内镜像自动部署</sub></p>
 </p>
 
 <p align="center">
@@ -18,11 +19,14 @@
 
 ## 为什么需要它？
 
-Claude Code CLI 在终端里功能强大，但你可能会遇到这些场景：
+Claude Code CLI 在终端里功能强大，但上手门槛不低——需要自行安装 Node.js、配置代理、搞定 npm 镜像。**Claude Desktop** 甚至还需要额外工具（如 CC-switch）才能在国内正常使用。
 
-| 痛点 | ClaudeCliGui 怎么解决 |
-|------|---------------------|
-| 新电脑没装 Node.js / Claude | 启动即检测，**一键全自动安装** |
+ClaudeCliGui 把这些全自动化了：
+
+| 痛点 | 怎么解决 |
+|------|---------|
+| 新电脑没装 Node.js / Claude | 启动即检测，**一键全自动安装**，国内镜像下载，全程零手动 |
+| Claude Desktop 需要 CC-switch 等工具 | **不需要任何代理/加速器**，内置国内 npm 镜像源 |
 | 多项目切换，终端 cd 来 cd 去 | 左侧项目列表，**点一下切换** |
 | 历史对话在 JSONL 里，难翻阅 | **可视化历史**，上滚加载更多 |
 | 想右键文件夹直接开始对话 | **一键安装右键菜单**，右键即开 |
