@@ -36,7 +36,8 @@ ClaudeCliGui 把这些全自动化了：
 
 ### 首次启动
 
-三步引导：安装 Node.js → 安装 Claude CLI → 输入 API Key。全程国内镜像，无需魔法上网。
+三步引导：安装 Node.js → 安装 Claude CLI → 输入 API Key。全程国内镜像，无需魔法上网。  
+<sub>ⓘ 当前仅支持 **DeepSeek API Key**（`platform.deepseek.com/api_keys`）</sub>
 
 ### 对话区
 
