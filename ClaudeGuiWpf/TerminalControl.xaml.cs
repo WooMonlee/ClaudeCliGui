@@ -22,6 +22,7 @@ public partial class TerminalControl : System.Windows.Controls.UserControl
     private const int MaxBlocks = 200;
     private List<(string role, string content)>? _fullSnapshot;
     private int _snapshotPos;
+    private int _thinkingCount;
     private int _sessionInputTokens, _sessionOutputTokens;
     private decimal _sessionCost;
     private const int InitialShow = 40;
@@ -208,7 +209,7 @@ public partial class TerminalControl : System.Windows.Controls.UserControl
 
     private void ProcessLine(string line, bool isStderr)
     {
-        if (isStderr) { AppendText($"  {line}\n", BrushSystem); return; }
+        if (isStderr) { AppendText($"  {ParseAnsiColors(line)}\n", BrushSystem); return; }
 
         try
         {
@@ -220,11 +221,51 @@ public partial class TerminalControl : System.Windows.Controls.UserControl
             switch (type)
             {
                 case "assistant":
+                {
                     var content = root.TryGetProperty("message", out var msg) && msg.TryGetProperty("content", out var ct) ? ct : default;
-                    AppendStreamText(ExtractContentText(content));
+                    if (content.ValueKind == JsonValueKind.Array)
+                    {
+                        foreach (var block in content.EnumerateArray())
+                        {
+                            var bt = block.TryGetProperty("type", out var btype) ? btype.GetString() : "";
+                            if (bt == "thinking" && block.TryGetProperty("thinking", out var th))
+                            {
+                                AppendThinkingPanel(th.GetString() ?? "");
+                            }
+                            else if (bt == "text" && block.TryGetProperty("text", out var txt))
+                            {
+                                AppendStreamText(txt.GetString() ?? "");
+                            }
+                            else if (bt == "tool_use")
+                            {
+                                var name = block.TryGetProperty("name", out var bn) ? bn.GetString() ?? "tool" : "tool";
+                                AppendStreamText($"\n[{name}]\n");
+                            }
+                        }
+                    }
                     break;
+                }
                 case "result":
+                    // 后台异步 markdown 渲染，不卡 UI
+                    var accText = _accumulated;
+                    var oldPara = _currentPara;
+                    var blocks = OutputBox.Document.Blocks;
                     NewOutputParagraph();
+                    if (oldPara != null && !string.IsNullOrWhiteSpace(accText))
+                    {
+                        _ = Task.Run(() =>
+                        {
+                            var rendered = MarkdownRenderer.Render(accText);
+                            Dispatcher.BeginInvoke(new Action(() =>
+                            {
+                                if (blocks.Contains(oldPara)) blocks.Remove(oldPara);
+                                foreach (var b in rendered) blocks.Add(b);
+                                var sep = new Paragraph(new Run("─".PadRight(40, '─')))
+                                { Foreground = new SolidColorBrush(System.Windows.Media.Color.FromRgb(0x33, 0x44, 0x55)), Margin = new Thickness(0, 6, 0, 10) };
+                                blocks.Add(sep);
+                            }), System.Windows.Threading.DispatcherPriority.Background);
+                        });
+                    }
                     // 提取 Token/费用统计（B: Token 追踪）
                     if (root.TryGetProperty("usage", out var usage))
                     {
@@ -246,6 +287,67 @@ public partial class TerminalControl : System.Windows.Controls.UserControl
             }
         }
         catch (JsonException) { AppendText(line + "\n", BrushNormal); }
+    }
+
+    // ===== 思考面板 =====
+
+    private Paragraph? _thinkingPara; // 当前可折叠思考面板
+    private int _thinkingParaStartBlock; // 面板起始 Block 索引
+
+    private void AppendThinkingPanel(string thinking)
+    {
+        if (string.IsNullOrEmpty(thinking)) return;
+        _thinkingCount++;
+
+        // 去掉前面已显示过的内容（流式重复）
+        if (_thinkingPara != null)
+        {
+            var existing = new TextRange(_thinkingPara.ContentStart, _thinkingPara.ContentEnd).Text;
+            if (thinking.StartsWith(existing))
+            {
+                var delta = thinking[existing.Length..];
+                if (string.IsNullOrEmpty(delta)) return;
+                thinking = delta;
+            }
+            // 更新已有面板内容
+            _thinkingPara.Inlines.Clear();
+            _thinkingPara.Inlines.Add(new Run(thinking) { Foreground = BrushSystem, FontSize = 11, FontStyle = FontStyles.Italic });
+            return;
+        }
+
+        // 新建可折叠面板（用 Expander 包在 BlockUIContainer 里）
+        var header = $"💭 思考中...";
+        var expander = new System.Windows.Controls.Expander
+        {
+            Header = header,
+            IsExpanded = false,
+            Foreground = new SolidColorBrush(System.Windows.Media.Color.FromRgb(0x88, 0x92, 0xb0)),
+            Background = new SolidColorBrush(System.Windows.Media.Color.FromRgb(0x10, 0x10, 0x18)),
+            BorderBrush = new SolidColorBrush(System.Windows.Media.Color.FromRgb(0x23, 0x35, 0x54)),
+            Margin = new Thickness(0, 2, 0, 4),
+            FontSize = 11
+        };
+        var thinkingText = new TextBlock
+        {
+            Text = thinking,
+            Foreground = BrushSystem,
+            FontSize = 11,
+            FontStyle = FontStyles.Italic,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(8, 4, 8, 4)
+        };
+        expander.Content = thinkingText;
+        _thinkingPara = new Paragraph(); // dummy, used for tracking only
+        var container = new BlockUIContainer(expander);
+        OutputBox.Document.Blocks.Add(container);
+    }
+
+    // ===== ANSI 颜色解析 =====
+
+    private static string ParseAnsiColors(string text)
+    {
+        if (!text.Contains('\x1b')) return text;
+        return System.Text.RegularExpressions.Regex.Replace(text, @"\x1b\[\d+(;\d+)*m", "");
     }
 
     // ===== 流式文本 =====
@@ -275,7 +377,7 @@ public partial class TerminalControl : System.Windows.Controls.UserControl
 
     private static string RegexCompressNewlines(string input) => Regex.Replace(input, @"\n{3,}", "\n");
 
-    private void NewOutputParagraph() { _currentPara = null; _currentRun = null; _accumulated = ""; _accumulatedLen = 0; }
+    private void NewOutputParagraph() { _currentPara = null; _currentRun = null; _accumulated = ""; _accumulatedLen = 0; _thinkingPara = null; _thinkingCount = 0; }
 
     private void AppendText(string text, SolidColorBrush color)
     {
@@ -478,7 +580,7 @@ public partial class TerminalControl : System.Windows.Controls.UserControl
             {
                 var bt = block.TryGetProperty("type", out var t) ? t.GetString() : "";
                 if (bt == "text" && block.TryGetProperty("text", out var txt)) sb.Append(txt.GetString());
-                else if (bt == "thinking" && block.TryGetProperty("thinking", out var th)) sb.Append($"\n[思考] {th.GetString()}\n");
+                // thinking 内容不混入正文（原版 CLI 中为可折叠显示）
                 else if (bt == "tool_use") { var n = block.TryGetProperty("name", out var bn) ? bn.GetString() ?? "tool" : "tool"; sb.Append($"\n[{n}]\n"); }
             }
             return sb.ToString();
