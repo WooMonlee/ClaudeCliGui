@@ -15,11 +15,12 @@ public static class Logger
 
     static Logger()
     {
+        // 修复 R4：先设路径再启动线程，防止 _logPath 为 null 时丢失日志
+        var exeDir = Path.GetDirectoryName(Environment.ProcessPath) ?? Directory.GetCurrentDirectory();
+        _logPath = Path.Combine(exeDir, "claudeCliGui-debug.log");
+
         _writerThread = new Thread(FlushLoop) { IsBackground = true, Name = "Logger" };
         _writerThread.Start();
-
-        var exeDir = Path.GetDirectoryName(Environment.ProcessPath) ?? Directory.GetCurrentDirectory();
-        _logPath = Path.Combine(exeDir, "claudeg-debug.log");
 
         try
         {

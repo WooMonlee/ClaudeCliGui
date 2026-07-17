@@ -6,11 +6,12 @@
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="*"/>
-            <RowDefinition Height="6"/>  <!-- 拖拽条 -->
+            <RowDefinition Height="Auto"/>  <!-- 思考面板（运行时动态显示） -->
+            <RowDefinition Height="6"/>     <!-- 拖拽条 -->
             <RowDefinition x:Name="InputRow" Height="100" MinHeight="40" MaxHeight="400"/>
         </Grid.RowDefinitions>
 
-        <!-- 输出区域：样式化的只读文本框 -->
+        <!-- ===== 正式回复输出区域：纯渲染内容 ===== -->
         <RichTextBox x:Name="OutputBox" Grid.Row="0"
                      Background="#0c0c0c" Foreground="#cccccc"
                      FontFamily="Consolas" FontSize="13"
@@ -28,17 +29,44 @@
         <!-- 加载提示 -->
         <TextBlock x:Name="TxtPlaceholder" Grid.Row="0"
                    Text="选择左侧项目，在此启动 Claude 终端"
-                   Foreground="#555555" FontSize="14"
+                   Foreground="#8892b0" FontSize="14"
                    HorizontalAlignment="Center" VerticalAlignment="Center"
                    Visibility="Visible"/>
 
+        <!-- ===== 思考面板：思考/tool_use/system 原始输出 ===== -->
+        <Border x:Name="ThinkingPanel" Grid.Row="1"
+                Background="#0a0a14" BorderBrush="#233554" BorderThickness="2"
+                Visibility="Collapsed" MaxHeight="200">
+            <Border.Resources>
+                <Storyboard x:Key="BreathingGlow" RepeatBehavior="Forever">
+                    <ColorAnimation Storyboard.TargetName="ThinkingPanel"
+                                    Storyboard.TargetProperty="(Border.BorderBrush).(SolidColorBrush.Color)"
+                                    From="#334466" To="#ffffff" Duration="0:0:2.5"
+                                    AutoReverse="True"/>
+                </Storyboard>
+            </Border.Resources>
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <TextBox x:Name="ThinkingBox" Grid.Column="0"
+                         Background="#0a0a14" Foreground="#8892b0"
+                         FontFamily="Consolas" FontSize="11"
+                         IsReadOnly="True" BorderThickness="0"
+                         VerticalScrollBarVisibility="Auto"
+                         TextWrapping="Wrap"
+                         Padding="12,6"/>
+            </Grid>
+        </Border>
+
         <!-- 拖拽条 -->
-        <GridSplitter Grid.Row="1" Height="6" HorizontalAlignment="Stretch"
+        <GridSplitter Grid.Row="2" Height="6" HorizontalAlignment="Stretch"
                       Background="#333333" ResizeBehavior="PreviousAndNext"
                       ResizeDirection="Rows" Cursor="SizeNS"/>
 
         <!-- 输入区域 -->
-        <Border Grid.Row="2" Background="#1a1a1a" BorderBrush="#333333" BorderThickness="0,1,0,0">
+        <Border Grid.Row="3" Background="#1a1a1a" BorderBrush="#333333" BorderThickness="0,1,0,0">
             <Grid Margin="10,4">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="*"/>
@@ -52,7 +80,8 @@
                          Padding="8,6" CaretBrush="#64ffda"
                          AcceptsReturn="True" TextWrapping="Wrap"
                          VerticalScrollBarVisibility="Auto"
-                         IsEnabled="False"
+                         VerticalContentAlignment="Top"
+                         IsEnabled="True"
                          KeyDown="InputBox_KeyDown"
                          TextChanged="InputBox_TextChanged"/>
 
@@ -65,17 +94,31 @@
                     </Grid.ColumnDefinitions>
                     <StackPanel Grid.Column="0" Orientation="Horizontal" Margin="24,0,0,0">
                         <ComboBox x:Name="CmbSkills" Width="130" Height="26" FontSize="11"
-                                  Background="#0f3460" Foreground="#64ffda" BorderBrush="#233554"
+                                  Background="#0f3460" Foreground="#80b3ff" BorderBrush="#233554"
                                   SelectionChanged="Skill_Selected" IsEnabled="False" Visibility="Collapsed"/>
                         <ComboBox x:Name="CmbTips" Width="130" Height="26" FontSize="11" Margin="24,0,0,0"
-                                  Background="#0f3460" Foreground="#ff8c00" BorderBrush="#233554"
+                                  Background="#0f3460" Foreground="#80b3ff" BorderBrush="#233554"
                                   SelectionChanged="Tip_Selected" IsEnabled="False" Visibility="Collapsed"/>
+                        <ComboBox x:Name="CmbProviderSwitch" Width="120" Height="26" FontSize="11"
+                                  Margin="24,0,0,0" ToolTip="仅切换本条消息的 API"
+                                  Background="#233554" Foreground="#80b3ff" BorderBrush="#233554"
+                                  IsEnabled="False" Visibility="Collapsed"/>
+                        <ComboBox x:Name="CmbPermissionMode" Width="130" Height="26" FontSize="11"
+                                  Margin="24,0,0,0" ToolTip="切换当前项目的工作模式"
+                                  Background="#233554" Foreground="#80b3ff" BorderBrush="#233554"
+                                  IsEnabled="False" Visibility="Collapsed"
+                                  SelectionChanged="PermissionMode_Selected"/>
                         <TextBlock x:Name="TxtStats" Text="" Foreground="#64ffda" FontSize="10"
                                    VerticalAlignment="Center" Margin="40,0,0,0"/>
                     </StackPanel>
                     <StackPanel Grid.Column="2" Orientation="Horizontal" Margin="0,0,24,0">
                         <TextBlock Text="Ctrl+Enter 发送" Foreground="#666666" FontSize="11"
                                    VerticalAlignment="Center" Margin="0,0,12,0"/>
+                        <Button x:Name="BtnThinking" Content="💭" Width="36" Height="30"
+                                Background="#233554" Foreground="#8892b0"
+                                FontWeight="Bold" BorderThickness="0"
+                                Visibility="Collapsed" Click="ShowThinkingOverlay"
+                                ToolTip="查看本次思考过程"/>
                         <Button x:Name="BtnSend" Content="发送" Width="100" Height="30"
                                 Background="#64ffda" Foreground="#1a1a2e"
                                 FontWeight="Bold" BorderThickness="0"
@@ -87,6 +130,43 @@
                     </StackPanel>
                 </Grid>
             </Grid>
+        </Border>
+
+        <!-- ===== 思考全屏覆盖层 ===== -->
+        <Border x:Name="ThinkingOverlay" Grid.RowSpan="4"
+                Background="#CC0c0c14" Visibility="Collapsed"
+                MouseLeftButtonDown="HideThinkingOverlay">
+            <Border Width="720" MaxHeight="700"
+                    Background="#0e0e1a" BorderBrush="#233554" BorderThickness="1"
+                    CornerRadius="8" HorizontalAlignment="Center" VerticalAlignment="Center"
+                    MouseLeftButtonDown="OverlayPanel_PreviewMouseDown">
+                <Grid Margin="16">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+                    <Grid Grid.Row="0" Margin="0,0,0,10">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="💭 思考过程" FontSize="14" FontWeight="Bold"
+                                   Foreground="#64ffda" VerticalAlignment="Center"/>
+                        <StackPanel Grid.Column="1" Orientation="Horizontal">
+                            <Button x:Name="BtnCloseOverlay" Content="✕" Width="32" Height="32"
+                                    Background="Transparent" Foreground="#64ffda" FontSize="14"
+                                    BorderThickness="1" BorderBrush="#64ffda"
+                                    Cursor="Hand" Click="CloseOverlay_Click"/>
+                        </StackPanel>
+                    </Grid>
+                    <TextBox x:Name="ThinkingFullBox" Grid.Row="1"
+                             Background="#0e0e1a" Foreground="#8892b0"
+                             FontFamily="Consolas" FontSize="11"
+                             IsReadOnly="True" BorderThickness="0"
+                             VerticalScrollBarVisibility="Auto"
+                             TextWrapping="Wrap"/>
+                </Grid>
+            </Border>
         </Border>
     </Grid>
 </UserControl>

@@ -6,9 +6,9 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
-    <UseWindowsForms>true</UseWindowsForms>
+    <!-- 不用 UseWindowsForms（会引入全局类型歧义），直接引用 WinForms DLL 即可 -->
     <RootNamespace>ClaudeGui</RootNamespace>
-    <AssemblyName>claudeg</AssemblyName>
+    <AssemblyName>claudeCliGui</AssemblyName>
     <ApplicationIcon>D:\Prog\ProgIDE\Claude\bin\claude.ico</ApplicationIcon>
 
     <!-- Self-contained single-file publish -->
@@ -24,6 +24,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <FrameworkReference Include="Microsoft.WindowsDesktop.App.WindowsForms" />
     <EmbeddedResource Include="settings-template.json" />
     <EmbeddedResource Include="claude-md-template.txt" />
     <TrimmerRootAssembly Include="System.Diagnostics.Tracing" />

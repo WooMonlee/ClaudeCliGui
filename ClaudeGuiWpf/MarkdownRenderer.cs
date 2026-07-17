@@ -93,7 +93,8 @@ public static class MarkdownRenderer
     private static Block RenderTable(string[] lines, ref int i)
     {
         var tableLines = new List<string>();
-        while (i < lines.Length && lines[i].TrimStart().StartsWith("|") && tableLines.Count < 100) { tableLines.Add(lines[i].Trim()); i++; }
+        // 修复 F4：移除 Count<100 限制防止无限循环，直接读完所有表格行
+        while (i < lines.Length && lines[i].TrimStart().StartsWith("|")) { tableLines.Add(lines[i].Trim()); i++; }
         if (tableLines.Count < 2) return new Paragraph(new Run("(空表格)"));
         var headers = ParseRow(tableLines[0]);
         var aligns = ParseRow(tableLines[1]);

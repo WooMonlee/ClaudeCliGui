@@ -91,7 +91,9 @@ public partial class SetupPage : System.Windows.Controls.UserControl
 
     private async Task CheckClaudeAsync()
     {
-        var paths = new[] { Path.Combine(_nodeDir!, "claude.cmd"), Path.Combine(_nodeDir!, "node_modules", ".bin", "claude.cmd") };
+        // 修复 F7：_nodeDir 为 null 时直接标记不可用
+        if (string.IsNullOrWhiteSpace(_nodeDir)) { _claudeOk = false; ClaudeStatus.Text = "未安装"; return; }
+        var paths = new[] { Path.Combine(_nodeDir, "claude.cmd"), Path.Combine(_nodeDir!, "node_modules", ".bin", "claude.cmd") };
         var found = paths.FirstOrDefault(File.Exists);
         if (found != null)
         {
@@ -227,12 +229,19 @@ public partial class SetupPage : System.Windows.Controls.UserControl
     private async Task InstallClaudeAsync()
     {
         var npmPath = Path.Combine(_nodeDir!, "npm.cmd");
+        // 修复 F6/F7：用 psi.Environment 设 PATH 代替 cmd set，同时读 stdout 防止管道死锁
         var psi = new ProcessStartInfo("cmd.exe",
-            $"/c set PATH={_nodeDir};%PATH% && \"{npmPath}\" install -g @anthropic-ai/claude-code --registry=https://registry.npmmirror.com")
+            $"/c \"{npmPath}\" install -g @anthropic-ai/claude-code --registry=https://registry.npmmirror.com")
         { RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false, CreateNoWindow = true };
+        if (!string.IsNullOrWhiteSpace(_nodeDir))
+            psi.Environment["PATH"] = _nodeDir + ";" + (Environment.GetEnvironmentVariable("PATH") ?? "");
         using var proc = Process.Start(psi) ?? throw new Exception("无法启动 npm");
-        var error = await proc.StandardError.ReadToEndAsync(); await proc.WaitForExitAsync();
-        if (proc.ExitCode != 0) throw new Exception(error.Split('\n').FirstOrDefault(s => s.Contains("error")) ?? "npm 失败");
+        // 同时读 stdout 和 stderr，防止管道缓冲区填满死锁
+        var stdoutTask = proc.StandardOutput.ReadToEndAsync();
+        var stderrTask = proc.StandardError.ReadToEndAsync();
+        await Task.WhenAll(stdoutTask, stderrTask);
+        await proc.WaitForExitAsync();
+        if (proc.ExitCode != 0) throw new Exception("AI 助手组件安装失败，请检查网络连接后重试");
 
         var found = new[] { Path.Combine(_nodeDir!, "claude.cmd"), Path.Combine(_nodeDir!, "node_modules", ".bin", "claude.cmd") }.FirstOrDefault(File.Exists);
         if (found != null)
@@ -264,24 +273,27 @@ public partial class SetupPage : System.Windows.Controls.UserControl
             using (var reader = new StreamReader(stream))
                 templateJson = reader.ReadToEnd();
 
-            // 修复 S1：用 JsonNode 安全修改 JSON，避免正则注入
             var node = JsonNode.Parse(templateJson)!;
-            node["env"]!["ANTHROPIC_AUTH_TOKEN"] = key;
-            node["env"]!["ANTHROPIC_API_KEY"] = key;
-            node["env"]!["ANTHROPIC_BASE_URL"] = url;
+            // 仅在 Process 级注入 Key/URL（不写死到 settings.json，ClaudeCliGui 按提供商动态注入）
+            Environment.SetEnvironmentVariable("ANTHROPIC_AUTH_TOKEN", key, EnvironmentVariableTarget.Process);
+            Environment.SetEnvironmentVariable("ANTHROPIC_API_KEY", key, EnvironmentVariableTarget.Process);
+            if (!string.IsNullOrWhiteSpace(url))
+                Environment.SetEnvironmentVariable("ANTHROPIC_BASE_URL", url, EnvironmentVariableTarget.Process);
+
+            // 写入 settings.json 时移除 env 节（避免写死提供商，干扰后续切换）
+            if (node["env"] != null)
+            {
+                var keepEnv = new JsonObject
+                {
+                    ["API_TIMEOUT_MS"] = node["env"]!["API_TIMEOUT_MS"]?.DeepClone(),
+                };
+                node["env"] = keepEnv;
+            }
 
             var settingsDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".claude");
             Directory.CreateDirectory(settingsDir);
             var resultJson = node.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
             File.WriteAllText(Path.Combine(settingsDir, "settings.json"), resultJson);
-
-            if (node["env"] is JsonObject env)
-                foreach (var p in env)
-                {
-                    var val = p.Value?.GetValue<string>() ?? "";
-                    Environment.SetEnvironmentVariable(p.Key, val, EnvironmentVariableTarget.User);
-                    Environment.SetEnvironmentVariable(p.Key, val, EnvironmentVariableTarget.Process);
-                }
 
             _apiOk = true; SetGreen(ApiIcon, ApiStatus, "已配置");
             ApiSaveStatus.Text = "已保存"; ApiSaveStatus.Foreground = new SolidColorBrush(System.Windows.Media.Color.FromRgb(0x4c, 0xaf, 0x50));
@@ -377,18 +389,8 @@ public partial class SetupPage : System.Windows.Controls.UserControl
         return null;
     }
 
-    private static string? FindPortableNodeDir(string exeDir)
-    {
-        var d = Path.Combine(exeDir, "nodejs"); if (!Directory.Exists(d)) return null;
-        try
-        {
-            foreach (var s in Directory.GetDirectories(d, "node-v*-win-x64"))
-                if (File.Exists(Path.Combine(s, "node.exe"))) return s;
-            if (File.Exists(Path.Combine(d, "node.exe"))) return d;
-        }
-        catch { }
-        return null;
-    }
+    // 修复 D4：复用 MainWindow 的 FindPortableNodeDir，避免代码重复
+    private static string? FindPortableNodeDir(string exeDir) => MainWindow.FindPortableNodeDirStatic(exeDir);
 
     private static async Task<string> RunShellAsync(string cmd, int timeoutMs, string? extraPath = null)
     {

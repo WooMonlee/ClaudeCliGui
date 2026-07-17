@@ -132,6 +132,8 @@
                             </Button>
                         </Grid>
                         <TextBlock x:Name="ApiSaveStatus" FontSize="12" Margin="44,6,0,0" Visibility="Collapsed"/>
+                        <TextBlock Foreground="#ff6b6b" FontSize="11" Margin="44,12,0,0" TextWrapping="Wrap"
+                                   Text="⚠ 安全提醒：API Key 将明文存储在本机配置文件中。仅在你本人独占的可信电脑上使用本软件。"/>
                     </StackPanel>
                 </Border>
 

@@ -1,0 +1,230 @@
+<Window x:Class="ClaudeGui.SystemSettingsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="系统设置" Width="650" Height="480"
+        WindowStartupLocation="CenterOwner"
+        Background="#16213e">
+    <Window.Resources>
+        <SolidColorBrush x:Key="TextBrush" Color="#e0e0e0"/>
+        <SolidColorBrush x:Key="TextMuted" Color="#8892b0"/>
+        <SolidColorBrush x:Key="AccentBrush" Color="#64ffda"/>
+        <SolidColorBrush x:Key="BgBrush" Color="#1a1a2e"/>
+        <SolidColorBrush x:Key="BorderBrush" Color="#233554"/>
+        <SolidColorBrush x:Key="ActiveBg" Color="#1a3a4a"/>
+        <Style x:Key="TabBtn" TargetType="Button">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Foreground" Value="#8892b0"/>
+            <Setter Property="FontSize" Value="15"/>
+            <Setter Property="FontWeight" Value="Bold"/>
+            <Setter Property="Padding" Value="12,8"/>
+            <Setter Property="BorderThickness" Value="0,0,0,2"/>
+            <Setter Property="BorderBrush" Value="Transparent"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Window.Resources>
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- 标题栏 -->
+        <Grid Grid.Row="0" Margin="20,16,20,10">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+            <Button Grid.Column="1" Content="✕" Width="36" Height="36"
+                    Background="Transparent" Foreground="#8892b0" FontSize="14"
+                    BorderThickness="0" Cursor="Hand" Click="Close_Click"
+                    HorizontalAlignment="Right"/>
+        </Grid>
+
+        <!-- Tab 按钮 -->
+        <StackPanel Grid.Row="1" Orientation="Vertical" Margin="20,0">
+            <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
+                <Button x:Name="BtnTabProviders" Content="API 提供商" Click="ShowProvidersTab"
+                        Style="{StaticResource TabBtn}"
+                        BorderBrush="#64ffda" Foreground="#64ffda"/>
+                <Button x:Name="BtnTabGeneral" Content="通用" Click="ShowGeneralTab"
+                        Style="{StaticResource TabBtn}" Margin="16,0,0,0"/>
+            </StackPanel>
+
+            <!-- ====== Tab: API 提供商 ====== -->
+            <Grid x:Name="PanelProviders" Visibility="Visible">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="160"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+
+                <!-- 左侧列表 -->
+                <Border Grid.Column="0" Background="#1a1a2e" CornerRadius="6" Margin="0,0,8,0">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="*"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+                        <ListBox x:Name="ProviderList" Grid.Row="0"
+                                 Background="Transparent" Foreground="#e0e0e0"
+                                 BorderThickness="0" Margin="3"
+                                 SelectionChanged="ProviderList_Selected">
+                            <ListBox.ItemTemplate>
+                                <DataTemplate>
+                                    <Grid Margin="2">
+                                        <StackPanel>
+                                            <TextBlock Text="{Binding Name}" FontSize="12" Foreground="#e0e0e0"/>
+                                            <TextBlock Text="{Binding Tags}" FontSize="10" Foreground="#8892b0"/>
+                                        </StackPanel>
+                                    </Grid>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                        <Button Grid.Row="1" Content="+ 添加自定义" Margin="3,4" Height="28" FontSize="11"
+                                Background="#0f3460" Foreground="#64ffda" BorderThickness="0"
+                                Cursor="Hand" Click="AddCustom_Click"/>
+                    </Grid>
+                </Border>
+
+                <!-- 右侧表单 -->
+                <Border Grid.Column="1" Background="#1a1a2e" CornerRadius="6" Padding="12">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="*"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+
+                        <TextBlock Grid.Row="0" Text="名称" FontSize="11" Foreground="#8892b0" Margin="0,0,0,2"/>
+                        <TextBox Grid.Row="1" x:Name="TxtProvName" Margin="0,0,0,8"
+                                 Background="#0c0c0c" Foreground="#e0e0e0" FontSize="12" Padding="6,4"
+                                 BorderBrush="#333" CaretBrush="#64ffda"/>
+
+                        <TextBlock Grid.Row="2" Text="API 端点 URL" FontSize="11" Foreground="#8892b0" Margin="0,0,0,2"/>
+                        <TextBox Grid.Row="3" x:Name="TxtProvUrl" Margin="0,0,0,8"
+                                 Background="#0c0c0c" Foreground="#ff8c00" FontFamily="Consolas" FontSize="11" Padding="6,4"
+                                 BorderBrush="#333" CaretBrush="#ff8c00"/>
+
+                        <TextBlock Grid.Row="4" Text="API Key" FontSize="11" Foreground="#8892b0" Margin="0,0,0,2"/>
+                        <TextBox Grid.Row="5" x:Name="TxtProvKey" Margin="0,0,0,8"
+                                 Background="#0c0c0c" Foreground="#64ffda" FontFamily="Consolas" FontSize="11" Padding="6,4"
+                                 BorderBrush="#333" CaretBrush="#64ffda"/>
+
+                        <Grid Grid.Row="6" Margin="0,8,0,0">
+                            <Grid.RowDefinitions><RowDefinition/><RowDefinition/></Grid.RowDefinitions>
+                            <Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition/></Grid.ColumnDefinitions>
+                            <TextBlock Text="默认模型" FontSize="10" Foreground="#555" Margin="0,0,8,1"/>
+                            <TextBox x:Name="TxtModel" Grid.Row="0" Grid.Column="1" Margin="0,0,0,4"
+                                     Background="#0c0c0c" Foreground="#ccc" FontSize="10" Padding="4,2"/>
+                            <TextBlock Text="小模型(Fast)" FontSize="10" Foreground="#555" Margin="0,0,8,1" Grid.Row="1"/>
+                            <TextBox x:Name="TxtSmall" Grid.Row="1" Grid.Column="1" Margin="0,0,0,4"
+                                     Background="#0c0c0c" Foreground="#ccc" FontSize="10" Padding="4,2"/>
+                        </Grid>
+
+                        <StackPanel Grid.Row="7" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,6,0,0">
+                            <TextBlock x:Name="TxtSaveStatus" Text="" FontSize="11"
+                                       Foreground="#4caf50" VerticalAlignment="Center" Margin="0,0,12,0"/>
+                            <Button Content="设为默认" Width="80" Height="28" FontSize="11"
+                                    Background="#233554" Foreground="#64ffda" BorderThickness="0"
+                                    Cursor="Hand" Click="SetDefault_Click"/>
+                            <Button Content="保存" Width="60" Height="28" FontSize="11" Margin="6,0,0,0"
+                                    Background="#64ffda" Foreground="#1a1a2e" FontWeight="Bold" BorderThickness="0"
+                                    Cursor="Hand" Click="SaveProvider_Click"/>
+                            <Button Content="删除" Width="60" Height="28" FontSize="11" Margin="6,0,0,0"
+                                    Background="#ff6b6b" Foreground="white" BorderThickness="0"
+                                    Cursor="Hand" Click="DeleteProvider_Click"/>
+                        </StackPanel>
+                    </Grid>
+                </Border>
+            </Grid>
+
+            <!-- ====== Tab: 通用 ====== -->
+            <Grid x:Name="PanelGeneral" Visibility="Collapsed">
+                <StackPanel Margin="0,20">
+                    <TextBlock Text="项目预载入" FontSize="13" Foreground="#64ffda" Margin="0,0,0,8"/>
+
+                    <CheckBox x:Name="ChkPreloadEnabled" Content="启用启动预载入" FontSize="13"
+                              Foreground="#e0e0e0" Margin="0,4,0,8"
+                              Checked="PreloadEnabled_Changed" Unchecked="PreloadEnabled_Changed"/>
+
+                    <StackPanel x:Name="PanelPreloadOptions" Margin="16,0,0,0">
+                        <TextBlock Text="打开哪些项目：" FontSize="12" Foreground="#8892b0" Margin="0,0,0,6"/>
+                        <ComboBox x:Name="CmbPreloadStrategy" Width="200" Height="28" FontSize="12"
+                                  Background="#0c0c0c" Foreground="#80b3ff" BorderBrush="#333"
+                                  SelectionChanged="PreloadStrategy_Changed">
+                            <ComboBox.Resources>
+                                <SolidColorBrush x:Key="{x:Static SystemColors.WindowBrushKey}" Color="#0c0c0c"/>
+                                <SolidColorBrush x:Key="{x:Static SystemColors.WindowTextBrushKey}" Color="#0064ff"/>
+                                <SolidColorBrush x:Key="{x:Static SystemColors.HighlightBrushKey}" Color="#0f3460"/>
+                                <SolidColorBrush x:Key="{x:Static SystemColors.HighlightTextBrushKey}" Color="#0064ff"/>
+                            </ComboBox.Resources>
+                            <ComboBox.ItemContainerStyle>
+                                <Style TargetType="ComboBoxItem">
+                                    <Setter Property="Background" Value="#1a1a2e"/>
+                                    <Setter Property="Foreground" Value="#e0e0e0"/>
+                                    <Setter Property="Template">
+                                        <Setter.Value>
+                                            <ControlTemplate TargetType="ComboBoxItem">
+                                                <Border Name="Border" Background="{TemplateBinding Background}"
+                                                        Padding="6,4">
+                                                    <ContentPresenter/>
+                                                </Border>
+                                                <ControlTemplate.Triggers>
+                                                    <Trigger Property="IsHighlighted" Value="True">
+                                                        <Setter TargetName="Border" Property="Background" Value="#0f3460"/>
+                                                        <Setter Property="Foreground" Value="#0064ff"/>
+                                                    </Trigger>
+                                                </ControlTemplate.Triggers>
+                                            </ControlTemplate>
+                                        </Setter.Value>
+                                    </Setter>
+                                </Style>
+                            </ComboBox.ItemContainerStyle>
+                            <ComboBoxItem Content="最近使用的 N 个项目" Tag="lastN" IsSelected="True"/>
+                            <ComboBoxItem Content="全部项目" Tag="all"/>
+                        </ComboBox>
+
+                        <StackPanel x:Name="PanelPreloadCount" Orientation="Horizontal" Margin="0,12,0,0">
+                            <TextBlock Text="N =" FontSize="12" Foreground="#8892b0" VerticalAlignment="Center"/>
+                            <TextBox x:Name="TxtPreloadCount" Width="50" Height="26" FontSize="12" Margin="8,0,0,0"
+                                     Background="#0c0c0c" Foreground="#ff8c00" BorderBrush="#333" Text="3"
+                                     VerticalContentAlignment="Center" HorizontalContentAlignment="Center"/>
+                            <TextBlock x:Name="TxtPreloadHint" Text="" FontSize="11"
+                                       Foreground="#556677" VerticalAlignment="Center" Margin="8,0,0,0"/>
+                        </StackPanel>
+                    </StackPanel>
+
+                    <StackPanel Orientation="Horizontal" Margin="0,16,0,0">
+                        <Button Content="保存设置" Width="100" Height="30" FontSize="12"
+                                Background="#64ffda" Foreground="#1a1a2e" FontWeight="Bold" BorderThickness="0"
+                                Cursor="Hand" Click="SaveGeneral_Click"/>
+                        <TextBlock x:Name="TxtGeneralStatus" Text="" FontSize="11"
+                                   Foreground="#4caf50" VerticalAlignment="Center" Margin="12,0,0,0"/>
+                    </StackPanel>
+                </StackPanel>
+            </Grid>
+        </StackPanel>
+
+        <!-- 底部 -->
+        <Border Grid.Row="2" Background="#0c0c0c" Padding="12,8" Margin="0,10,0,0">
+            <TextBlock Text="提供商配置存储在 claudeCliGui.json 中，API Key 将在注入子进程后不落盘额外副本"
+                       FontSize="10" Foreground="#8892b0" TextWrapping="Wrap"/>
+        </Border>
+    </Grid>
+</Window>

@@ -88,6 +88,7 @@
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="*"/>
+                    <RowDefinition Height="Auto"/>
                 </Grid.RowDefinitions>
 
                 <!-- 标题 -->
@@ -112,8 +113,10 @@
                             Background="Transparent" Foreground="#ff6b6b" FontWeight="Bold" FontSize="12"
                             BorderBrush="#ff6b6b" BorderThickness="1" Cursor="Hand"
                             ToolTip="删除所有配置和项目记录（慎用）"/>
-                    <Button Content="+ 新建" Style="{StaticResource PrimaryBtn}" Width="80" Click="NewProject_Click"/>
-                    <Button Content="+ 添加" Style="{StaticResource SidebarBtn}" Width="80" Margin="6,0,0,0" Click="AddExisting_Click"/>
+                    <Button Content="+ 新建" Style="{StaticResource PrimaryBtn}" Width="80" Click="NewProject_Click"
+                            ToolTip="新建一个文件夹（默认作为项目名，可随时修改），用于存放项目记忆和相关文件"/>
+                    <Button Content="+ 添加" Style="{StaticResource SidebarBtn}" Width="80" Margin="6,0,0,0" Click="AddExisting_Click"
+                            ToolTip="添加一个已经存在的文件夹（默认作为项目名，可随时修改），用于存放项目记忆和相关文件"/>
                 </StackPanel>
 
                 <!-- 项目列表 -->
@@ -122,7 +125,10 @@
                         <ItemsControl.ItemTemplate>
                             <DataTemplate>
                                 <Border Style="{StaticResource ProjectCard}"
-                                        MouseLeftButtonDown="ProjectCard_Click"
+                                        PreviewMouseLeftButtonDown="ProjectCard_MouseDown"
+                                        PreviewMouseMove="ProjectCard_MouseMove"
+                                        PreviewMouseLeftButtonUp="ProjectCard_MouseUp"
+                                        AllowDrop="True" Drop="ProjectCard_Drop"
                                         Tag="{Binding}">
                                     <Grid>
                                         <!-- 左侧选中指示条 -->
@@ -162,11 +168,10 @@
                                         <StackPanel Grid.Column="2" Orientation="Horizontal">
                                             <Button Content="✎" ToolTip="重命名" Click="RenameProject_Click"
                                                     Tag="{Binding}" Style="{StaticResource SidebarBtn}"
-                                                    Width="28" Height="28" Padding="0" FontSize="11"/>
+                                                    Width="36" Height="36" Padding="0" FontSize="13"/>
                                             <Button Content="✕" ToolTip="删除" Click="DeleteProject_Click"
                                                     Tag="{Binding}" Style="{StaticResource SidebarBtn}"
-                                                    Width="28" Height="28" Padding="0" FontSize="11"
-                                                    Margin="4,0,0,0"/>
+                                                    Width="36" Height="36" Padding="0" FontSize="13"/>
                                         </StackPanel>
                                     </Grid>
                                         </Grid> <!-- 内层 Grid 闭合 -->
@@ -175,6 +180,13 @@
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>
                 </ScrollViewer>
+
+                <!-- 系统设置按钮 -->
+                <Button Grid.Row="3" Content="系统设置" Height="32" Margin="16,4,16,10"
+                        Background="#233554" Foreground="#8892b0" FontSize="12"
+                        BorderBrush="#233554" BorderThickness="1"
+                        Cursor="Hand" Click="SystemSettings_Click"
+                        ToolTip="配置 API 提供商和软件设置"/>
 
             </Grid>
         </Border>
@@ -189,8 +201,8 @@
             <!-- 设置向导（仅环境不完整时显示） -->
             <local:SetupPage x:Name="SetupPage" Visibility="Collapsed"/>
 
-            <!-- 终端区域（默认显示，SetupPage 需用时才切换） -->
-            <local:TerminalControl x:Name="Terminal" Visibility="Visible"/>
+            <!-- 终端区域：每个项目一个 TerminalControl，切换项目时只改变可见性 -->
+            <Grid x:Name="TerminalHost"/>
         </Grid>
     </Grid>
 </Window>

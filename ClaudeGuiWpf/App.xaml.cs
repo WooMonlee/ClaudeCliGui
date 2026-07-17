@@ -1,4 +1,6 @@
 using System.Diagnostics;
+using System.Runtime.InteropServices;
+using System.Threading;
 using System.Windows;
 using System.Windows.Threading;
 
@@ -6,12 +8,18 @@ namespace ClaudeGui;
 
 public partial class App : System.Windows.Application
 {
+    // 单实例检测
+    [DllImport("user32.dll")] private static extern IntPtr FindWindow(string? lpClassName, string lpWindowName);
+    [DllImport("user32.dll")] private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+    [DllImport("user32.dll")] private static extern bool SetForegroundWindow(IntPtr hWnd);
+    private const int SW_RESTORE = 9;
+    private const string WindowTitle = "Claude 界面";
+
     static App()
     {
-        // 最早期的启动诊断——在 Logger 初始化之前写入临时文件
         try
         {
-            File.WriteAllText(Path.Combine(Path.GetTempPath(), "claudeg-boot.log"),
+            File.WriteAllText(Path.Combine(Path.GetTempPath(), "claudeCliGui-boot.log"),
                 $"[{DateTime.Now:HH:mm:ss}] App 静态构造开始\n");
         }
         catch { }
@@ -19,9 +27,26 @@ public partial class App : System.Windows.Application
 
     protected override void OnStartup(StartupEventArgs e)
     {
+        // 单实例检测：如果已有窗口在运行（可能隐藏），恢复它
+        var existingHwnd = FindWindow(null, WindowTitle);
+        if (existingHwnd != IntPtr.Zero)
+        {
+            // 发取消信号 → 旧实例停止退出计时器
+            try
+            {
+                using var cancelEvent = new EventWaitHandle(false, EventResetMode.ManualReset, "ClaudeCliGui_CancelExit");
+                cancelEvent.Set();
+            }
+            catch { }
+            ShowWindow(existingHwnd, SW_RESTORE);
+            SetForegroundWindow(existingHwnd);
+            Environment.Exit(0);
+            return;
+        }
+
         try
         {
-            File.AppendAllText(Path.Combine(Path.GetTempPath(), "claudeg-boot.log"),
+            File.AppendAllText(Path.Combine(Path.GetTempPath(), "claudeCliGui-boot.log"),
                 $"[{DateTime.Now:HH:mm:ss}] OnStartup 进入\n");
         }
         catch { }
@@ -72,7 +97,7 @@ public partial class App : System.Windows.Application
     {
         var exePath = Environment.ProcessPath;
         if (string.IsNullOrWhiteSpace(exePath)) return;
-        var newPath = Path.Combine(Path.GetDirectoryName(exePath)!, "claudeg.new.exe");
+        var newPath = Path.Combine(Path.GetDirectoryName(exePath)!, "claudeCliGui.new.exe");
         if (!File.Exists(newPath)) return;
 
         try

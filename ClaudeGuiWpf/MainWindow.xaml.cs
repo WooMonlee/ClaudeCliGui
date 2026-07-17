@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
+using System.Threading;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
@@ -15,6 +16,10 @@ public partial class MainWindow : Window
 {
     private ConfigService _config = null!;
     private ProjectEntry? _currentProject;
+    private readonly Dictionary<string, TerminalControl> _terminals = new(StringComparer.OrdinalIgnoreCase);
+    private TerminalControl? _activeTerminal;
+    private const string CancelExitEventName = "ClaudeCliGui_CancelExit";
+    private EventWaitHandle? _cancelExitEvent;
 
     public MainWindow()
     {
@@ -33,18 +38,40 @@ public partial class MainWindow : Window
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
         Logger.Info("MainWindow Loaded");
+
+        // 创建跨进程退出取消信号（新实例恢复隐藏窗口时触发）
+        try { _cancelExitEvent = new EventWaitHandle(false, EventResetMode.ManualReset, CancelExitEventName); }
+        catch { }
+
         SetupPage.SetupCompleted += OnSetupCompleted;
         SetupPage.RequestShow += () =>
         {
             SetupPage.Visibility = Visibility.Visible;
-            Terminal.Visibility = Visibility.Collapsed;
+            if (_activeTerminal != null)
+                _activeTerminal.Visibility = Visibility.Collapsed;
         };
         UpdateMenuStatusText();
         RefreshProjectList();
-        // 后台检测更新
+
+        // 恢复上次关闭时的项目
+        var lastProjectName = _config.GetConfigValue("lastActiveProject", "");
+        if (!string.IsNullOrWhiteSpace(lastProjectName))
+        {
+            var lastProj = _config.GetProject(lastProjectName);
+            if (lastProj != null && Directory.Exists(lastProj.Path))
+            {
+                Logger.Info($"恢复上次项目: {lastProj.Name}");
+                SelectProject(lastProj);
+                _ = CheckForUpdateAsync();
+                RunStartupPreload();
+                return;
+            }
+        }
+
         _ = CheckForUpdateAsync();
 
-        // SetupPage 也会自身检测，缺组件才显示
+        // 按策略预载入项目
+        RunStartupPreload();
 
         var args = Environment.GetCommandLineArgs();
         for (int i = 1; i < args.Length; i++)
@@ -72,21 +99,44 @@ public partial class MainWindow : Window
         ProjectListBox.ItemsSource = projects;
     }
 
-    private void UpdateProjectCardSelection()
-    {
-        foreach (var card in FindVisualChildren<Border>(ProjectListBox))
-            if (card.Tag is ProjectItem item)
-                card.Background = item.IsActive
-                    ? new SolidColorBrush(System.Windows.Media.Color.FromRgb(0x1a, 0x3a, 0x4a))
-                    : System.Windows.Media.Brushes.Transparent;
-    }
-
     // ============ 切换右边：设置向导 / 终端 ============
 
     private void OnSetupCompleted()
     {
         SetupPage.Visibility = Visibility.Collapsed;
-        Terminal.Visibility = Visibility.Visible;
+        if (_activeTerminal != null)
+            _activeTerminal.Visibility = Visibility.Visible;
+    }
+
+    private TerminalControl GetOrCreateTerminal(string projectPath)
+    {
+        if (_terminals.TryGetValue(projectPath, out var tc) && tc != null)
+            return tc;
+
+        var exeDir = Path.GetDirectoryName(Environment.ProcessPath) ?? Directory.GetCurrentDirectory();
+        var tcNew = new TerminalControl { Config = _config };
+        var nodeDir = FindPortableNodeDir(exeDir);
+        if (nodeDir != null)
+        {
+            var portableClaude = Path.Combine(nodeDir, "claude.cmd");
+            if (File.Exists(portableClaude)) tcNew.ClaudePath = portableClaude;
+        }
+        tcNew.RefreshProviderSwitch();
+        _terminals[projectPath] = tcNew;
+        return tcNew;
+    }
+
+    private void ShowTerminal(TerminalControl tc)
+    {
+        if (_activeTerminal == tc) return;
+        // 隐藏当前
+        if (_activeTerminal != null)
+            _activeTerminal.Visibility = Visibility.Collapsed;
+        // 显示新的
+        tc.Visibility = Visibility.Visible;
+        if (!TerminalHost.Children.Contains(tc))
+            TerminalHost.Children.Add(tc);
+        _activeTerminal = tc;
     }
 
     private void SelectProject(ProjectEntry project)
@@ -94,29 +144,128 @@ public partial class MainWindow : Window
         Logger.Info($"选择项目: {project.Name} ({project.Path})");
         _currentProject = project;
         _config.UpdateAccessTime(project.Name);
+        _config.SetConfigValue("lastActiveProject", project.Name); // 保存最后打开的项目
         RefreshProjectList();
 
-        // 切换项目时清空旧内容
-        Terminal.ClearOutput();
-        LoadSnapshot(project.Path);
+        var tc = GetOrCreateTerminal(project.Path);
 
-        var exeDir = Path.GetDirectoryName(Environment.ProcessPath) ?? Directory.GetCurrentDirectory();
-        var nodeDir = FindPortableNodeDir(exeDir);
-        if (nodeDir != null)
-        {
-            var portableClaude = Path.Combine(nodeDir, "claude.cmd");
-            if (File.Exists(portableClaude)) Terminal.ClaudePath = portableClaude;
-        }
+        // 如果是新建的终端，加载历史快照
+        if (_activeTerminal != tc)
+            LoadSnapshot(tc, project.Path);
 
-        Terminal.Activate(project.Path);
+        ShowTerminal(tc);
+        tc.PermissionMode = project.PermissionMode; // 恢复该项目的权限模式（默认 bypassPermissions）
+        tc.Activate(project.Path);
+
+        // 预载入 claude（仅新建时触发）
+        PreloadIfNeeded(tc, project.Path);
     }
 
-    // ============ 项目操作 ============
-
-    private void ProjectCard_Click(object sender, MouseButtonEventArgs e)
+    private void PreloadIfNeeded(TerminalControl tc, string projectPath)
     {
-        if (sender is Border border && border.Tag is ProjectItem item && item.Original != null)
-            SelectProject(item.Original);
+        if (!tc.IsProcessAlive)
+            tc.PreloadSession(projectPath, tc.ClaudePath);
+    }
+
+    /// <summary>启动时按配置策略分批预载入所有项目</summary>
+    private async void RunStartupPreload()
+    {
+        var list = _config.GetPreloadList();
+        if (list.Count == 0) return;
+
+        Logger.Info($"启动预载入: 策略={_config.GetConfigValue("preloadStrategy")} 数量={list.Count}");
+
+        // 逐个预载入，每个间隔 3 秒，避免同时启动太多进程
+        for (int i = 0; i < list.Count; i++)
+        {
+            var project = list[i];
+            // 如果用户已经点击了某个项目，跳过它（已经被 SelectProject 预载过）
+            var tc = GetOrCreateTerminal(project.Path);
+            if (!tc.IsProcessAlive)
+            {
+                Logger.Info($"  预载入 [{i + 1}/{list.Count}]: {project.Name}");
+                tc.PreloadSession(project.Path, tc.ClaudePath);
+            }
+
+            // 间距，同时给用户留出点击第一个项目的时间
+            if (i < list.Count - 1)
+                await Task.Delay(3000);
+        }
+
+        Logger.Info("启动预载入完成");
+    }
+
+    // ============ 拖拽排序 ============
+
+    private Point _dragStartPoint;
+    private Border? _dragSource;
+    private bool _isDragging; // 防 DoDragDrop 重入
+
+    private void ProjectCard_MouseDown(object sender, MouseButtonEventArgs e)
+    {
+        if (sender is Border border)
+        {
+            // 如果点的是按钮（重命名/删除），不捕获鼠标，让 Button 正常收到 Click
+            if (e.OriginalSource is DependencyObject src)
+            {
+                var p = src;
+                while (p != null)
+                {
+                    if (p is Button) return;
+                    p = VisualTreeHelper.GetParent(p) as DependencyObject;
+                }
+            }
+            _dragStartPoint = e.GetPosition(null);
+            _dragSource = border;
+            border.CaptureMouse();
+        }
+    }
+
+    private void ProjectCard_MouseMove(object sender, MouseEventArgs e)
+    {
+        if (_dragSource == null || _isDragging || e.LeftButton != MouseButtonState.Pressed) return;
+        var diff = _dragStartPoint - e.GetPosition(null);
+        if (Math.Abs(diff.X) < 5 && Math.Abs(diff.Y) < 5) return;
+
+        if (_dragSource.Tag is ProjectItem item)
+        {
+            _isDragging = true;
+            _dragSource.Opacity = 0.4;
+            var source = _dragSource; // 本地快照，防止 DoDragDrop 模态期间被置 null
+            source.ReleaseMouseCapture();
+            DragDrop.DoDragDrop(source, item, DragDropEffects.Move);
+            source.Opacity = 1.0;
+            _isDragging = false;
+        }
+        _dragSource = null;
+    }
+
+    private void ProjectCard_MouseUp(object sender, MouseButtonEventArgs e)
+    {
+        // 只有当 _dragSource 实际捕获过鼠标时才判定为卡片点击（防止按钮单击误触发 SelectProject）
+        if (_dragSource != null && _dragSource.Tag is ProjectItem item && item.Original != null)
+        {
+            if (sender is Border && sender == (object?)_dragSource)
+            {
+                var diff = _dragStartPoint - e.GetPosition(null);
+                if (Math.Abs(diff.X) < 5 && Math.Abs(diff.Y) < 5)
+                    SelectProject(item.Original);
+            }
+        }
+        _dragSource?.ReleaseMouseCapture();
+        _dragSource = null;
+    }
+
+    private void ProjectCard_Drop(object sender, DragEventArgs e)
+    {
+        if (e.Data.GetData(typeof(ProjectItem)) is ProjectItem dragged
+            && sender is Border targetBorder
+            && targetBorder.Tag is ProjectItem target
+            && dragged.Original != null && target.Original != null)
+        {
+            _config.SwapSortOrder(dragged.Original.Name, target.Original.Name);
+            RefreshProjectList();
+        }
     }
 
     private void NewProject_Click(object sender, RoutedEventArgs e)
@@ -127,9 +276,19 @@ public partial class MainWindow : Window
 
     private void AddExisting_Click(object sender, RoutedEventArgs e)
     {
-        var dlg = new System.Windows.Forms.FolderBrowserDialog { Description = "选择项目文件夹", UseDescriptionForTitle = true };
+        // 修复 3：从配置读取上次打开的目录（保存的是被选项目本身的目录，下次打开其父目录即可）
+        var lastDir = _config.GetConfigValue("lastOpenDir", "");
+        var parentDir = Directory.Exists(lastDir) ? Path.GetDirectoryName(lastDir.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)) ?? "" : "";
+        var dlg = new System.Windows.Forms.FolderBrowserDialog
+        {
+            Description = "选择项目文件夹",
+            UseDescriptionForTitle = true,
+            SelectedPath = Directory.Exists(parentDir) ? parentDir : Environment.GetFolderPath(Environment.SpecialFolder.Desktop)
+        };
         if (dlg.ShowDialog() == System.Windows.Forms.DialogResult.OK)
         {
+            // 保存本次实际选择的项目路径
+            _config.SetConfigValue("lastOpenDir", dlg.SelectedPath);
             try
             {
                 var proj = _config.AddExistingProject(dlg.SelectedPath);
@@ -146,16 +305,84 @@ public partial class MainWindow : Window
     {
         if (sender is Button btn && btn.Tag is ProjectItem item)
         {
-            var newName = Microsoft.VisualBasic.Interaction.InputBox("新名称：", "重命名项目", item.Name);
-            if (!string.IsNullOrWhiteSpace(newName) && newName != item.Name)
+            // 自定义重命名窗口，替代原始 InputBox
+            var win = new System.Windows.Window
             {
-                try
-                {
-                    var u = _config.RenameProject(item.Name, newName);
-                    if (u != null) { if (_currentProject?.Name == item.Name) _currentProject = u; RefreshProjectList(); }
-                }
-                catch (Exception ex) { MessageBox.Show(ex.Message, "错误", MessageBoxButton.OK, MessageBoxImage.Error); }
-            }
+                Title = "重命名项目",
+                Width = 380, Height = 160,
+                WindowStartupLocation = System.Windows.WindowStartupLocation.CenterOwner,
+                Owner = this,
+                Background = new SolidColorBrush(System.Windows.Media.Color.FromRgb(0x16, 0x21, 0x3e)),
+                ResizeMode = System.Windows.ResizeMode.NoResize,
+                WindowStyle = System.Windows.WindowStyle.None,
+                AllowsTransparency = true,
+                ShowInTaskbar = false
+            };
+            var outerBorder = new System.Windows.Controls.Border
+            {
+                Background = new SolidColorBrush(System.Windows.Media.Color.FromRgb(0x16, 0x21, 0x3e)),
+                BorderBrush = new SolidColorBrush(System.Windows.Media.Color.FromRgb(0x23, 0x35, 0x54)),
+                BorderThickness = new System.Windows.Thickness(1),
+                CornerRadius = new System.Windows.CornerRadius(8),
+                Padding = new System.Windows.Thickness(20)
+            };
+            var panel = new System.Windows.Controls.StackPanel { };
+            var title = new System.Windows.Controls.TextBlock
+            {
+                Text = "重命名项目",
+                Foreground = new SolidColorBrush(System.Windows.Media.Color.FromRgb(0x64, 0xff, 0xda)),
+                FontSize = 16, FontWeight = System.Windows.FontWeights.Bold,
+                Margin = new System.Windows.Thickness(0, 0, 0, 14)
+            };
+            var txt = new System.Windows.Controls.TextBox
+            {
+                Text = item.Name,
+                Background = new SolidColorBrush(System.Windows.Media.Color.FromRgb(0x0c, 0x0c, 0x0c)),
+                Foreground = new SolidColorBrush(System.Windows.Media.Color.FromRgb(0xe0, 0xe0, 0xe0)),
+                CaretBrush = new SolidColorBrush(System.Windows.Media.Color.FromRgb(0x64, 0xff, 0xda)),
+                FontSize = 14,
+                Padding = new System.Windows.Thickness(8, 6, 8, 6),
+                BorderBrush = new SolidColorBrush(System.Windows.Media.Color.FromRgb(0x23, 0x35, 0x54)),
+                Margin = new System.Windows.Thickness(0, 0, 0, 14)
+            };
+            var btnRow = new System.Windows.Controls.StackPanel
+            {
+                Orientation = System.Windows.Controls.Orientation.Horizontal,
+                HorizontalAlignment = System.Windows.HorizontalAlignment.Right
+            };
+            var btnCancel = new System.Windows.Controls.Button
+            {
+                Content = "取消", Width = 70, Height = 30,
+                Background = new SolidColorBrush(System.Windows.Media.Color.FromRgb(0x23, 0x35, 0x54)),
+                Foreground = new SolidColorBrush(System.Windows.Media.Color.FromRgb(0x88, 0x92, 0xb0)),
+                FontSize = 12, BorderThickness = new System.Windows.Thickness(0),
+                Cursor = System.Windows.Input.Cursors.Hand,
+                Margin = new System.Windows.Thickness(0, 0, 8, 0)
+            };
+            var btnOk = new System.Windows.Controls.Button
+            {
+                Content = "确定", Width = 70, Height = 30,
+                Background = new SolidColorBrush(System.Windows.Media.Color.FromRgb(0x64, 0xff, 0xda)),
+                Foreground = new SolidColorBrush(System.Windows.Media.Color.FromRgb(0x1a, 0x1a, 0x2e)),
+                FontWeight = System.Windows.FontWeights.Bold, FontSize = 12,
+                BorderThickness = new System.Windows.Thickness(0),
+                Cursor = System.Windows.Input.Cursors.Hand
+            };
+            txt.KeyDown += (s, ke) => { if (ke.Key == System.Windows.Input.Key.Enter) btnOk.RaiseEvent(new System.Windows.RoutedEventArgs(System.Windows.Controls.Button.ClickEvent)); };
+            btnCancel.Click += (s, ce) => win.Close();
+            btnOk.Click += (s, ce) =>
+            {
+                var newName = txt.Text.Trim();
+                if (string.IsNullOrWhiteSpace(newName)) { txt.Focus(); return; }
+                try { var u = _config.RenameProject(item.Name, newName); if (u != null) { if (_currentProject?.Name == item.Name) _currentProject = u; RefreshProjectList(); } win.Close(); }
+                catch (Exception ex) { System.Windows.MessageBox.Show(ex.Message, "错误", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Error); }
+            };
+            btnRow.Children.Add(btnCancel); btnRow.Children.Add(btnOk);
+            panel.Children.Add(title); panel.Children.Add(txt); panel.Children.Add(btnRow);
+            outerBorder.Child = panel;
+            win.Content = outerBorder;
+            txt.Focus(); txt.SelectAll();
+            win.ShowDialog();
         }
     }
 
@@ -167,17 +394,36 @@ public partial class MainWindow : Window
                 MessageBoxButton.YesNo, MessageBoxImage.Warning) == MessageBoxResult.Yes)
             {
                 _config.DeleteProject(item.Name);
-                if (_currentProject?.Name == item.Name) { _currentProject = null; Terminal.Dispose(); }
+                if (_currentProject?.Name == item.Name)
+                {
+                    _currentProject = null;
+                    if (_terminals.TryGetValue(item.Original?.Path ?? "", out var t))
+                    {
+                        t.Dispose();
+                        TerminalHost.Children.Remove(t);
+                        _terminals.Remove(item.Original?.Path ?? "");
+                        if (_activeTerminal == t) _activeTerminal = null;
+                    }
+                }
                 RefreshProjectList();
             }
         }
+    }
+
+    private void SystemSettings_Click(object sender, RoutedEventArgs e)
+    {
+        var dlg = new SystemSettingsWindow(_config) { Owner = this };
+        dlg.ShowDialog();
+        // 刷新当前活跃终端的提供商下拉
+        if (_activeTerminal != null)
+            _activeTerminal.RefreshProviderSwitch();
     }
 
     private async void WipeAll_Click(object sender, RoutedEventArgs e)
     {
         var result = MessageBox.Show(
             "此功能将清除本软件所有痕迹，包括：\n\n" +
-            "  · 删除所有项目记录（claudeg.json）\n" +
+            "  · 删除所有项目记录（claudeCliGui.json）\n" +
             "  · 清除 API Key 和模型配置（环境变量）\n" +
             "  · 删除全局 settings.json 和 CLAUDE.md\n" +
             "  · 删除 Node.js 便携环境（nodejs 目录）\n" +
@@ -211,9 +457,9 @@ public partial class MainWindow : Window
             var settingsPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".claude", "settings.json");
             if (File.Exists(settingsPath)) try { File.Delete(settingsPath); } catch { }
 
-            // 3. 删除 claudeg.json
+            // 3. 删除 claudeCliGui.json
             var exeDir = Path.GetDirectoryName(Environment.ProcessPath) ?? Directory.GetCurrentDirectory();
-            var configPath = Path.Combine(exeDir, "claudeg.json");
+            var configPath = Path.Combine(exeDir, "claudeCliGui.json");
             if (File.Exists(configPath)) try { File.Delete(configPath); } catch { }
 
             // 3. 删除 nodejs 便携目录
@@ -237,7 +483,7 @@ public partial class MainWindow : Window
             MessageBox.Show("已清除所有配置。程序即将退出。", "清零完成", MessageBoxButton.OK, MessageBoxImage.Information);
 
             // 退出程序
-            Terminal.Dispose();
+            DisposeAllTerminals();
             await Task.Delay(300);
             Environment.Exit(0);
         }
@@ -248,28 +494,98 @@ public partial class MainWindow : Window
         }
     }
 
-    protected override void OnClosed(EventArgs e)
+    private bool _exitingGracefully;
+    private System.Windows.Threading.DispatcherTimer? _exitWatchTimer;
+
+    protected override void OnClosing(CancelEventArgs e)
     {
-        try { Terminal.Dispose(); } catch (Exception ex) { Logger.Error("Terminal.Dispose 失败", ex); }
+        // 有后台进程在跑 → 隐藏窗口，等跑完再退出
+        if (!_exitingGracefully && _terminals.Values.Any(t => t.IsProcessAlive))
+        {
+            e.Cancel = true;
+            Hide();
+            Logger.Info("窗口关闭，后台进程继续运行，等待完成...");
+
+            _exitWatchTimer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(5) };
+            var deadline = DateTime.UtcNow.AddMinutes(10);
+            _exitWatchTimer.Tick += (_, _) =>
+            {
+                // 新实例恢复了窗口 → 取消退出，恢复正常
+                if (_cancelExitEvent != null && _cancelExitEvent.WaitOne(0))
+                {
+                    _cancelExitEvent.Reset();
+                    _exitWatchTimer?.Stop();
+                    _exitWatchTimer = null;
+                    Show();
+                    WindowState = WindowState.Normal;
+                    Activate();
+                    Logger.Info("新实例触发恢复，取消后台退出");
+                    return;
+                }
+
+                var anyAlive = _terminals.Values.Any(t => t.IsProcessAlive);
+                if (!anyAlive || DateTime.UtcNow > deadline)
+                {
+                    _exitWatchTimer?.Stop();
+                    Logger.Info(anyAlive ? "后台超时，强制退出" : "后台任务完成，退出");
+                    _exitingGracefully = true;
+                    DisposeAllTerminals();
+                    try { _config.Save(); } catch { }
+                    try { _cancelExitEvent?.Dispose(); } catch { }
+                    Environment.Exit(0);
+                }
+            };
+            _exitWatchTimer.Start();
+            return;
+        }
+
+        DisposeAllTerminals();
+        // 修复 R2：正常退出时释放 EventWaitHandle
+        try { _cancelExitEvent?.Dispose(); } catch { }
+        _cancelExitEvent = null;
         try { _config.Save(); } catch (Exception ex) { Logger.Error("Config.Save 失败", ex); }
-        base.OnClosed(e);
+        base.OnClosing(e);
+    }
+
+    private void DisposeAllTerminals()
+    {
+        foreach (var (_, tc) in _terminals)
+        {
+            try { TerminalHost.Children.Remove(tc); tc.Dispose(); } catch { }
+        }
+        _terminals.Clear();
+        _activeTerminal = null;
     }
 
     // ============ 历史快照 ============
 
-    private void LoadSnapshot(string workDir)
+    private static void LoadSnapshot(TerminalControl tc, string workDir)
     {
         var all = LoadClaudeJsonlHistory(workDir, 1000);
         if (all.Count == 0) all = LoadClaudegSnapshot(workDir);
         if (all.Count == 0) return;
 
         var messages = all.Select(m => (m.Role, m.Content)).ToList();
-        Terminal.LoadFullSnapshot(messages);
-        Terminal.ScrollToEnd();
+        tc.LoadFullSnapshot(messages);
+        tc.ScrollToEnd();
         Logger.Info($"加载历史: {all.Count} 条");
     }
 
-    private List<SnapshotMsg> LoadClaudeJsonlHistory(string workDir, int maxCount = 500)
+    private static List<SnapshotMsg> LoadClaudegSnapshot(string workDir)
+    {
+        var result = new List<SnapshotMsg>();
+        var p = Path.Combine(workDir, ".claude", "claudeg-snapshot.json");
+        if (!File.Exists(p)) return result;
+        try
+        {
+            var msgs = JsonSerializer.Deserialize<List<ChatSnapshotEntry>>(File.ReadAllText(p));
+            if (msgs != null) result.AddRange(msgs.Select(m => new SnapshotMsg { Role = m.Role, Content = m.Content }));
+        }
+        catch { }
+        return result;
+    }
+
+    private static List<SnapshotMsg> LoadClaudeJsonlHistory(string workDir, int maxCount = 500)
     {
         var result = new List<SnapshotMsg>();
         var root = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".claude", "projects");
@@ -283,7 +599,8 @@ public partial class MainWindow : Window
                 || string.Equals(Path.GetFileName(d), EncodeProjectPath(norm + Path.DirectorySeparatorChar), StringComparison.OrdinalIgnoreCase));
         if (pDir == null) return result;
 
-        var seen = new HashSet<int>();
+        // 修复 L9：用内容字符串做去重键，避免 GetHashCode 碰撞丢消息
+        var seen = new HashSet<string>();
         foreach (var f in Directory.GetFiles(pDir, "*.jsonl").OrderBy(f => new FileInfo(f).LastWriteTimeUtc))
         {
             try
@@ -292,26 +609,12 @@ public partial class MainWindow : Window
                 {
                     if (string.IsNullOrWhiteSpace(line)) continue;
                     var msg = ParseJsonlLine(line);
-                    if (msg != null && seen.Add(msg.Content.GetHashCode())) result.Add(msg);
+                    if (msg != null && seen.Add(msg.Content)) result.Add(msg);
                 }
             }
             catch { }
         }
         if (result.Count > maxCount) result = result.Skip(result.Count - maxCount).ToList();
-        return result;
-    }
-
-    private List<SnapshotMsg> LoadClaudegSnapshot(string workDir)
-    {
-        var result = new List<SnapshotMsg>();
-        var p = Path.Combine(workDir, ".claude", "claudeg-snapshot.json");
-        if (!File.Exists(p)) return result;
-        try
-        {
-            var msgs = JsonSerializer.Deserialize<List<ChatSnapshotEntry>>(File.ReadAllText(p));
-            if (msgs != null) result.AddRange(msgs.Select(m => new SnapshotMsg { Role = m.Role, Content = m.Content }));
-        }
-        catch { }
         return result;
     }
 
@@ -365,6 +668,7 @@ public partial class MainWindow : Window
 
     // ============ 工具 ============
 
+    public static string? FindPortableNodeDirStatic(string exeDir) => FindPortableNodeDir(exeDir);
     private static string? FindPortableNodeDir(string exeDir)
     {
         var d = Path.Combine(exeDir, "nodejs");
@@ -393,7 +697,7 @@ public partial class MainWindow : Window
             var assets = doc.RootElement.GetProperty("assets");
             string? downloadUrl = null;
             foreach (var a in assets.EnumerateArray())
-                if (a.GetProperty("name").GetString() == "claudeg.exe")
+                if (a.GetProperty("name").GetString() == "claudeCliGui.exe")
                 { downloadUrl = a.GetProperty("browser_download_url").GetString(); break; }
 
             if (tag == null || downloadUrl == null) return;
@@ -405,7 +709,7 @@ public partial class MainWindow : Window
             if (tagVer == currentStr) return;
 
             var exeDir = Path.GetDirectoryName(Environment.ProcessPath) ?? Directory.GetCurrentDirectory();
-            var newPath = Path.Combine(exeDir, "claudeg.new.exe");
+            var newPath = Path.Combine(exeDir, "claudeCliGui.new.exe");
             if (File.Exists(newPath)) return; // 已在下载
 
             Logger.Info($"发现新版本: {tag}，正在下载...");
@@ -418,7 +722,7 @@ public partial class MainWindow : Window
 
     // ============ 右键菜单切换 ============
 
-    private void ToggleContextMenu_Click(object sender, System.Windows.Input.MouseButtonEventArgs e)
+    private void ToggleContextMenu_Click(object sender, MouseButtonEventArgs e)
     {
         if (IsContextMenuInstalled())
         {
