@@ -99,31 +99,22 @@
                         <ComboBox x:Name="CmbTips" Width="130" Height="26" FontSize="11" Margin="24,0,0,0"
                                   Background="#0f3460" Foreground="#80b3ff" BorderBrush="#233554"
                                   SelectionChanged="Tip_Selected" IsEnabled="False" Visibility="Collapsed"/>
-                        <ComboBox x:Name="CmbProviderSwitch" Width="120" Height="26" FontSize="11"
-                                  Margin="24,0,0,0" ToolTip="仅切换本条消息的 API"
-                                  Background="#233554" Foreground="#80b3ff" BorderBrush="#233554"
-                                  IsEnabled="False" Visibility="Collapsed"/>
-                        <ComboBox x:Name="CmbPermissionMode" Width="130" Height="26" FontSize="11"
-                                  Margin="24,0,0,0" ToolTip="切换当前项目的工作模式"
-                                  Background="#233554" Foreground="#80b3ff" BorderBrush="#233554"
-                                  IsEnabled="False" Visibility="Collapsed"
-                                  SelectionChanged="PermissionMode_Selected"/>
                         <TextBlock x:Name="TxtStats" Text="" Foreground="#64ffda" FontSize="10"
                                    VerticalAlignment="Center" Margin="40,0,0,0"/>
                     </StackPanel>
                     <StackPanel Grid.Column="2" Orientation="Horizontal" Margin="0,0,24,0">
-                        <TextBlock Text="Ctrl+Enter 发送" Foreground="#666666" FontSize="11"
-                                   VerticalAlignment="Center" Margin="0,0,12,0"/>
                         <Button x:Name="BtnThinking" Content="💭" Width="36" Height="30"
                                 Background="#233554" Foreground="#8892b0"
                                 FontWeight="Bold" BorderThickness="0"
                                 Visibility="Collapsed" Click="ShowThinkingOverlay"
                                 ToolTip="查看本次思考过程"/>
-                        <Button x:Name="BtnSend" Content="发送" Width="100" Height="30"
+                        <Button x:Name="BtnSend" Content="发送" Width="130" Height="30"
                                 Background="#64ffda" Foreground="#1a1a2e"
                                 FontWeight="Bold" BorderThickness="0"
                                 IsEnabled="False" Visibility="Collapsed" Click="Send_Click"/>
-                        <Button x:Name="BtnStop" Content="停止" Width="60" Height="30" Margin="8,0,0,0"
+                        <TextBlock Text="Ctrl+Enter" Foreground="#666666" FontSize="11"
+                                   VerticalAlignment="Center" Margin="8,0,8,0"/>
+                        <Button x:Name="BtnStop" Content="停止" Width="60" Height="30"
                                 Background="#ff6b6b" Foreground="white"
                                 FontWeight="Bold" BorderThickness="0"
                                 Visibility="Collapsed" Click="Stop_Click"/>

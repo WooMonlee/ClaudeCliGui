@@ -121,7 +121,7 @@ public partial class MainWindow : Window
             var portableClaude = Path.Combine(nodeDir, "claude.cmd");
             if (File.Exists(portableClaude)) tcNew.ClaudePath = portableClaude;
         }
-        tcNew.RefreshProviderSwitch();
+        tcNew.RefreshSkillsProviders();
         _terminals[projectPath] = tcNew;
         return tcNew;
     }
@@ -212,7 +212,10 @@ public partial class MainWindow : Window
                 while (p != null)
                 {
                     if (p is Button) return;
-                    p = VisualTreeHelper.GetParent(p) as DependencyObject;
+                    // Run/ContentElement 不在可视树中，走逻辑树
+                    p = (p is System.Windows.Media.Visual)
+                        ? VisualTreeHelper.GetParent(p) as DependencyObject
+                        : (p as FrameworkContentElement)?.Parent as DependencyObject;
                 }
             }
             _dragStartPoint = e.GetPosition(null);
@@ -416,7 +419,7 @@ public partial class MainWindow : Window
         dlg.ShowDialog();
         // 刷新当前活跃终端的提供商下拉
         if (_activeTerminal != null)
-            _activeTerminal.RefreshProviderSwitch();
+            _activeTerminal.RefreshSkillsProviders();
     }
 
     private async void WipeAll_Click(object sender, RoutedEventArgs e)
@@ -705,10 +708,14 @@ public partial class MainWindow : Window
         {
             using var hc = new System.Net.Http.HttpClient { Timeout = TimeSpan.FromSeconds(15) };
             hc.DefaultRequestHeaders.Add("User-Agent", "ClaudeGui");
-            var json = await hc.GetStringAsync("https://api.github.com/repos/WooMonlee/ClaudeCliGui/releases/latest");
+            var json = await hc.GetStringAsync("https://api.github.com/repos/WooMonlee/ClaudeCliGui/releases?per_page=3");
             using var doc = JsonDocument.Parse(json);
-            var tag = doc.RootElement.GetProperty("tag_name").GetString();
-            var assets = doc.RootElement.GetProperty("assets");
+            // 取最新发布（含预发布），排除 draft
+            var latest = doc.RootElement.EnumerateArray()
+                .FirstOrDefault(r => !r.TryGetProperty("draft", out var d) || !d.GetBoolean());
+            if (latest.ValueKind != JsonValueKind.Object) return;
+            var tag = latest.GetProperty("tag_name").GetString();
+            var assets = latest.GetProperty("assets");
             string? downloadUrl = null;
             foreach (var a in assets.EnumerateArray())
                 if (a.GetProperty("name").GetString() == "claudeCliGui.exe")

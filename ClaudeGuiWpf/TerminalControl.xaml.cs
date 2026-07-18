@@ -16,6 +16,7 @@ public partial class TerminalControl : System.Windows.Controls.UserControl
     private string? _sessionId;
     private string _currentDir = "";
     private string _permissionMode = "bypassPermissions"; // 当前项目的工作模式
+    private string? _overrideProviderName; // 本会话临时覆盖的提供商（来自快捷指令选择）
     private bool _isRunning;
     private Paragraph? _currentPara;
     private Run? _currentRun;
@@ -55,16 +56,17 @@ public partial class TerminalControl : System.Windows.Controls.UserControl
     {
         ("📊 分析项目结构", "请分析当前项目的目录结构和技术栈"),
         ("🔍 全面代码审计", "分析程序漏洞、内存泄漏、逻辑问题。第一步只提问题列出风险等级，第二步沟通后修复。覆盖致命错误/安全/泄漏/逻辑/性能/冗余六个层级。"),
-        ("📝 代码审查", "请审查以下代码，指出改进点"),
         ("⚡ 性能优化建议", "请分析代码性能瓶颈，给出优化方案"),
-        ("🔒 安全检查", "请检查代码中的安全漏洞：注入风险、敏感泄露、权限越界"),
         ("📖 解释代码逻辑", "请解释以下代码的功能和逻辑"),
         ("🔧 重构建议", "请对以下代码给出重构建议"),
         ("📄 生成文档", "请为这个项目生成README文档"),
         ("💬 添加注释", "请为代码添加详细的中文注释"),
-        ("🧪 编写单元测试", "请为以下代码编写单元测试"),
-        ("📋 计划模式", "请先进入计划模式：仔细阅读相关代码，制定详细实施计划，列出所有涉及文件和修改步骤，等待我确认后再执行。任务："),
         ("🗜️ 压缩上下文", "/compact"),
+        // 以下为权限模式（Tag 前缀 mode:，不替换输入框文本）
+        ("⚡ 自动执行", "mode:bypassPermissions"),
+        ("📋 计划模式", "mode:plan"),
+        ("🛡️ 半自动确认", "mode:acceptEdits"),
+        ("👆 步步确认", "mode:manual"),
     };
 
     // 中文标签 → 英文原文
@@ -90,23 +92,21 @@ public partial class TerminalControl : System.Windows.Controls.UserControl
     {
         InitializeComponent();
 
-        // 填充下拉框
+        // 填充快捷指令（前 8 个填输入框，后 4 个为权限模式）
         CmbSkills.Items.Clear();
         CmbSkills.Items.Add(new ComboBoxItem { Content = "⚡ 快捷指令", Tag = "", IsSelected = true });
-        foreach (var s in _skills)
+        for (int i = 0; i < _skills.Length; i++)
+        {
+            var s = _skills[i];
+            if (i == 8) // 第 9 个起插入分隔线
+                CmbSkills.Items.Add(new ComboBoxItem { Content = "──────────", Tag = "", IsEnabled = false });
             CmbSkills.Items.Add(new ComboBoxItem { Content = s.Label, Tag = s.Prompt, ToolTip = s.Prompt });
+        }
 
         CmbTips.Items.Clear();
         CmbTips.Items.Add(new ComboBoxItem { Content = "💡 提示技巧", Tag = "", IsSelected = true });
         foreach (var t in _tips)
             CmbTips.Items.Add(new ComboBoxItem { Content = t.Label, Tag = t.EnText, ToolTip = t.EnText });
-
-        // 权限模式下拉：4 档
-        CmbPermissionMode.Items.Clear();
-        CmbPermissionMode.Items.Add(new ComboBoxItem { Content = "⚡ 自动执行", Tag = "bypassPermissions", ToolTip = "Claude 直接动手，不询问（默认）" });
-        CmbPermissionMode.Items.Add(new ComboBoxItem { Content = "📋 计划模式", Tag = "plan", ToolTip = "只读模式：出方案不动代码" });
-        CmbPermissionMode.Items.Add(new ComboBoxItem { Content = "🛡️ 半自动确认", Tag = "acceptEdits", ToolTip = "编辑自动过，危险操作暂停确认" });
-        CmbPermissionMode.Items.Add(new ComboBoxItem { Content = "👆 步步确认", Tag = "manual", ToolTip = "每次操作都需手动确认" });
 
         OutputBox.Loaded += (_, _) =>
         {
@@ -124,11 +124,32 @@ public partial class TerminalControl : System.Windows.Controls.UserControl
 
     private void Skill_Selected(object sender, SelectionChangedEventArgs e)
     {
-        if (CmbSkills.SelectedItem is ComboBoxItem item && item.Tag is string prompt && prompt != "")
+        if (CmbSkills.SelectedItem is ComboBoxItem item && item.Tag is string tag && tag != "")
         {
-            InputBox.Text = prompt;
-            InputBox.Focus();
-            InputBox.CaretIndex = InputBox.Text.Length;
+            if (tag.StartsWith("mode:"))
+            {
+                // 权限模式切换
+                _permissionMode = tag[5..];
+                Config?.SetPermissionModeByPath(_currentDir, _permissionMode);
+                Logger.Info($"权限模式切换: {item.Content}");
+            }
+            else if (tag.StartsWith("provider:"))
+            {
+                // 临时覆盖本条消息的 API 提供商
+                _overrideProviderName = tag[9..];
+                Logger.Info($"提供商切换: {_overrideProviderName}");
+            }
+            else if (tag == "reset") // 恢复默认提供商
+            {
+                _overrideProviderName = null;
+                Logger.Info("提供商恢复默认");
+            }
+            else
+            {
+                InputBox.Text = tag;
+                InputBox.Focus();
+                InputBox.CaretIndex = InputBox.Text.Length;
+            }
         }
         CmbSkills.SelectedIndex = 0; // 重置回标题
     }
@@ -144,16 +165,6 @@ public partial class TerminalControl : System.Windows.Controls.UserControl
             InputBox.Focus();
         }
         CmbTips.SelectedIndex = 0;
-    }
-
-    private void PermissionMode_Selected(object sender, SelectionChangedEventArgs e)
-    {
-        if (CmbPermissionMode.SelectedItem is ComboBoxItem item && item.Tag is string mode && mode != _permissionMode)
-        {
-            _permissionMode = mode;
-            Config?.SetPermissionModeByPath(_currentDir, mode);
-            Logger.Info($"权限模式切换: {item.Content} ({mode})");
-        }
     }
 
     private void OnScrollChanged(object sender, ScrollChangedEventArgs e)
@@ -785,29 +796,24 @@ public partial class TerminalControl : System.Windows.Controls.UserControl
     public string PermissionMode
     {
         get => _permissionMode;
-        set { _permissionMode = value; RefreshPermissionMode(); }
+        set => _permissionMode = value;
     }
 
-    private void RefreshPermissionMode()
-    {
-        foreach (ComboBoxItem item in CmbPermissionMode.Items)
-        {
-            if (item.Tag is string tag && tag == _permissionMode)
-            {
-                item.IsSelected = true;
-                return;
-            }
-        }
-    }
-
-    /// <summary>填充提供商切换下拉</summary>
-    public void RefreshProviderSwitch()
+    /// <summary>填充提供商到快捷指令下拉（动态追加在权限模式之后）</summary>
+    public void RefreshSkillsProviders()
     {
         if (Config == null) return;
-        // 修复 UX-F7：显示全部提供商，未填Key的灰显提示
+        // 移除旧的提供商项（1 标题 + 8 指令 + 1 分隔 + 4 模式 = 14 个固定项）
+        while (CmbSkills.Items.Count > 14)
+            CmbSkills.Items.RemoveAt(CmbSkills.Items.Count - 1);
+
         var allProviders = Config.GetProviders().ToList();
-        CmbProviderSwitch.Items.Clear();
-        CmbProviderSwitch.Items.Add(new ComboBoxItem { Content = "默认AI", Tag = "", IsSelected = true });
+        if (allProviders.Count == 0) return;
+
+        // 分隔线 + 标题
+        CmbSkills.Items.Add(new ComboBoxItem { Content = "──────────", Tag = "", IsEnabled = false });
+        CmbSkills.Items.Add(new ComboBoxItem { Content = "🔌 切换 AI", Tag = "", IsEnabled = false, Foreground = new SolidColorBrush(System.Windows.Media.Color.FromRgb(0x66, 0x66, 0x66)) });
+
         foreach (var p in allProviders)
         {
             var hasKey = !string.IsNullOrWhiteSpace(p.ApiKey);
@@ -816,35 +822,25 @@ public partial class TerminalControl : System.Windows.Controls.UserControl
             var item = new ComboBoxItem
             {
                 Content = label,
-                Tag = hasKey ? p.Name : "",
+                Tag = hasKey ? $"provider:{p.Name}" : "",
                 ToolTip = hasKey ? p.BaseUrl : $"{p.Name}: 请在系统设置中填写 API Key",
             };
-            // 修复对比度：有Key用亮蓝，无Key用暗灰
             if (hasKey)
-            {
                 item.Foreground = new SolidColorBrush(System.Windows.Media.Color.FromRgb(0x80, 0xb3, 0xff));
-                item.Background = new SolidColorBrush(System.Windows.Media.Color.FromRgb(0x0c, 0x0c, 0x0c));
-            }
             else
-            {
                 item.Foreground = new SolidColorBrush(System.Windows.Media.Color.FromRgb(0x66, 0x66, 0x66));
-                item.Background = new SolidColorBrush(System.Windows.Media.Color.FromRgb(0x0c, 0x0c, 0x0c));
-            }
-            CmbProviderSwitch.Items.Add(item);
+            CmbSkills.Items.Add(item);
         }
-        CmbProviderSwitch.SelectedIndex = 0;
     }
 
-    /// <summary>解析当前应使用的提供商（可能被下拉临时覆盖）</summary>
+    /// <summary>解析当前应使用的提供商（可能被快捷指令临时覆盖）</summary>
     private ApiProviderConfig? ResolveProvider()
     {
         if (Config == null) return null;
-        // 下拉有选中 → 覆盖
-        if (CmbProviderSwitch.SelectedItem is ComboBoxItem item && item.Tag is string name && !string.IsNullOrWhiteSpace(name))
+        if (!string.IsNullOrWhiteSpace(_overrideProviderName))
         {
-            var overrideProvider = Config.GetProvider(name);
-            if (overrideProvider != null && !string.IsNullOrWhiteSpace(overrideProvider.ApiKey))
-                return overrideProvider;
+            var p = Config.GetProvider(_overrideProviderName);
+            if (p != null && !string.IsNullOrWhiteSpace(p.ApiKey)) return p;
         }
         return Config.GetActiveProvider();
     }
@@ -896,7 +892,7 @@ public partial class TerminalControl : System.Windows.Controls.UserControl
         if (!string.IsNullOrWhiteSpace(provider.DefaultFableModel))
             psi.Environment["ANTHROPIC_DEFAULT_FABLE_MODEL"] = provider.DefaultFableModel;
     }
-    public void Activate(string workDir) { _currentDir = workDir; TxtPlaceholder.Visibility = Visibility.Collapsed; InputBox.IsEnabled = true; BtnSend.IsEnabled = !string.IsNullOrWhiteSpace(InputBox.Text); BtnSend.Visibility = Visibility.Visible; CmbSkills.IsEnabled = true; CmbSkills.Visibility = Visibility.Visible; CmbTips.IsEnabled = true; CmbTips.Visibility = Visibility.Visible; RefreshProviderSwitch(); CmbProviderSwitch.IsEnabled = true; CmbProviderSwitch.Visibility = Visibility.Visible; CmbPermissionMode.IsEnabled = true; CmbPermissionMode.Visibility = Visibility.Visible; InputBox.Focus(); }
+    public void Activate(string workDir) { _currentDir = workDir; TxtPlaceholder.Visibility = Visibility.Collapsed; InputBox.IsEnabled = true; BtnSend.IsEnabled = !string.IsNullOrWhiteSpace(InputBox.Text); BtnSend.Visibility = Visibility.Visible; CmbSkills.IsEnabled = true; CmbSkills.Visibility = Visibility.Visible; CmbTips.IsEnabled = true; CmbTips.Visibility = Visibility.Visible; RefreshSkillsProviders(); InputBox.Focus(); }
     public void ScrollToEnd() { Dispatcher.BeginInvoke(new Action(() => { OutputBox.UpdateLayout(); OutputBox.ScrollToEnd(); }), System.Windows.Threading.DispatcherPriority.Background); }
     // ===== 拖拽文件 =====
     private void OnDragOver(object sender, System.Windows.DragEventArgs e)
