@@ -17,6 +17,7 @@ public partial class TerminalControl : System.Windows.Controls.UserControl
     private string _currentDir = "";
     private string _permissionMode = "bypassPermissions"; // 当前项目的工作模式
     private string? _overrideProviderName; // 本会话临时覆盖的提供商（来自快捷指令选择）
+    private string _lastPrompt = ""; // 本轮发送的提示词，result 时写入聊天记录
     private bool _isRunning;
     private Paragraph? _currentPara;
     private Run? _currentRun;
@@ -340,6 +341,10 @@ public partial class TerminalControl : System.Windows.Controls.UserControl
                     HideThinkingPanel();
 
                     var accText = _accumulated.ToString();
+                    // 后台写入聊天记录
+                    var promptSnapshot = _lastPrompt;
+                    var dirSnapshot = _currentDir;
+                    _ = Task.Run(() => SaveChatRecord(dirSnapshot, promptSnapshot, accText));
                     var oldPara = _currentPara;
                     var docRef = OutputBox.Document;
                     NewOutputParagraph();
@@ -692,6 +697,47 @@ public partial class TerminalControl : System.Windows.Controls.UserControl
         _isRunning = false;
     }
 
+    // ===== 聊天记录写入 =====
+
+    private const long ChatRecordMaxSize = 3 * 1024 * 1024; // 3MB
+
+    private static void SaveChatRecord(string projectDir, string prompt, string response)
+    {
+        if (string.IsNullOrWhiteSpace(projectDir) || string.IsNullOrWhiteSpace(prompt) || string.IsNullOrWhiteSpace(response))
+            return;
+        try
+        {
+            var chatPath = Path.Combine(projectDir, "聊天记录.md");
+
+            // 超 3MB → 归档
+            try
+            {
+                if (File.Exists(chatPath) && new FileInfo(chatPath).Length >= ChatRecordMaxSize)
+                {
+                    var memDir = Path.Combine(projectDir, ".claude", "memory");
+                    Directory.CreateDirectory(memDir);
+                    // 找下一个可用编号
+                    int seq = 1;
+                    while (File.Exists(Path.Combine(memDir, $"聊天记录{seq}.md"))) seq++;
+                    File.Move(chatPath, Path.Combine(memDir, $"聊天记录{seq}.md"));
+                }
+            }
+            catch { /* 归档失败不阻塞写入 */ }
+
+            var now = DateTime.Now;
+            var record = new System.Text.StringBuilder();
+            record.AppendLine($"=== {now:yyyy-MM-dd HH:mm:ss} ===");
+            record.AppendLine($"👤 用户: {prompt}");
+            record.AppendLine("---");
+            record.AppendLine($"🤖 Claude:");
+            record.AppendLine(response);
+            record.AppendLine();
+
+            File.AppendAllText(chatPath, record.ToString(), System.Text.Encoding.UTF8);
+        }
+        catch { /* 写入失败不崩溃 */ }
+    }
+
     private void UpdateUIState()
     {
         InputBox.IsEnabled = true; // 思考期间也可输入，方便边等边写
@@ -777,13 +823,14 @@ public partial class TerminalControl : System.Windows.Controls.UserControl
         if (string.IsNullOrWhiteSpace(prompt)) return;
         if (string.IsNullOrWhiteSpace(_currentDir)) return; // 未选项目时忽略发送
         _sending = true;
+        _lastPrompt = prompt; // 记下本轮提示词，result 时写入聊天记录
         if (_isRunning) { StopProcess(); HideThinkingPanel(); }
         InputBox.Text = "";
         ThinkingPanel.MaxHeight = ThinkingNormalHeight;
         ThinkingPanel.BorderBrush = new SolidColorBrush(System.Windows.Media.Color.FromRgb(0x23, 0x35, 0x54));
         ThinkingBox.FontSize = 11;
         try { StartSession(_currentDir, prompt, ClaudePath); } catch (Exception ex) { AppendText($"启动失败: {ex.Message}\n", BrushError); }
-        finally { _sending = false; }
+        finally { _sending = false; _overrideProviderName = null; }
     }
 
     // ===== 公共 =====

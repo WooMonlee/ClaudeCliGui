@@ -32,7 +32,7 @@ public static class MarkdownRenderer
             var line = lines[i];
             if (string.IsNullOrWhiteSpace(line)) { i++; continue; }
             if (line.TrimStart().StartsWith("```")) { blocks.Add(RenderCodeBlock(lines, ref i)); continue; }
-            if (line.TrimStart().StartsWith("|") && IsTable(lines, i)) { blocks.Add(RenderTable(lines, ref i)); continue; }
+            if (line.Contains('|') && IsTable(lines, i)) { blocks.Add(RenderTable(lines, ref i)); continue; }
             var hm = Regex.Match(line, @"^(#{1,6})\s+(.+)$");
             if (hm.Success) { blocks.Add(CreateHeading(hm.Groups[2].Value, hm.Groups[1].Length)); i++; continue; }
             if (Regex.IsMatch(line.Trim(), @"^[-*_]{3,}$")) { blocks.Add(new Paragraph(new Run("─".PadRight(60, '─'))) { Foreground = BrTableBorder, Margin = new Thickness(0, 8, 0, 8) }); i++; continue; }
@@ -55,7 +55,7 @@ public static class MarkdownRenderer
         return para;
     }
 
-    private static bool IsSpecialLine(string l) => l.TrimStart().StartsWith("```") || l.TrimStart().StartsWith("|") || Regex.IsMatch(l, @"^#{1,6}\s") || Regex.IsMatch(l, @"^[-*_]{3,}$") || l.TrimStart().StartsWith(">") || Regex.IsMatch(l, @"^\s*[-*]\s+") || Regex.IsMatch(l, @"^\s*\d+\.\s+");
+    private static bool IsSpecialLine(string l) => l.TrimStart().StartsWith("```") || l.Contains('|') || Regex.IsMatch(l, @"^#{1,6}\s") || Regex.IsMatch(l, @"^[-*_]{3,}$") || l.TrimStart().StartsWith(">") || Regex.IsMatch(l, @"^\s*[-*]\s+") || Regex.IsMatch(l, @"^\s*\d+\.\s+");
 
     private static void RenderInline(Paragraph para, string text)
     {
@@ -88,23 +88,36 @@ public static class MarkdownRenderer
         return new Paragraph(new Run(sb.ToString().TrimEnd())) { Background = BrCodeBg, Foreground = BrCode, FontFamily = new System.Windows.Media.FontFamily("Consolas"), FontSize = 12, Margin = new Thickness(0, 4, 0, 8), Padding = new Thickness(12, 8, 12, 8), LineHeight = 18 };
     }
 
-    private static bool IsTable(string[] lines, int start) => start + 1 < lines.Length && lines[start].TrimStart().StartsWith("|") && Regex.IsMatch(lines[start + 1].Trim(), @"^\|[\s\-:|]+\|$");
+    private static bool IsTable(string[] lines, int start)
+    {
+        if (start + 1 >= lines.Length) return false;
+        var l1 = lines[start];
+        var l2 = lines[start + 1];
+        // 两行都必须含管道符
+        if (!l1.Contains('|') || !l2.Contains('|')) return false;
+        // 分隔行：仅由 |、-、:、空格组成
+        return Regex.IsMatch(l2.Trim(), @"^[\s\-:|]+$");
+    }
+
+    private static bool IsTableLine(string l) => l.Contains('|') && Regex.IsMatch(l.Trim(), @"^[\s\-:|]+$") || (l.Contains('|') && !l.TrimStart().StartsWith("```"));
 
     private static Block RenderTable(string[] lines, ref int i)
     {
         var tableLines = new List<string>();
-        // 修复 F4：移除 Count<100 限制防止无限循环，直接读完所有表格行
-        while (i < lines.Length && lines[i].TrimStart().StartsWith("|")) { tableLines.Add(lines[i].Trim()); i++; }
-        if (tableLines.Count < 2) return new Paragraph(new Run("(空表格)"));
-        var headers = ParseRow(tableLines[0]);
-        var aligns = ParseRow(tableLines[1]);
+        // 读取所有含 | 的连续行
+        while (i < lines.Length && lines[i].Contains('|')) { tableLines.Add(lines[i].Trim()); i++; }
+        // 跳过纯分隔行（只有 |-: 字符）
+        var dataLines = tableLines.Where(l => !Regex.IsMatch(l, @"^[\s\-:|]+$")).ToList();
+        if (dataLines.Count < 1) return new Paragraph(new Run("(空表格)"));
+        var headers = ParseRow(dataLines[0]);
+        var aligns = tableLines.Count > 1 ? ParseRow(tableLines[1]) : new List<string>();
         var table = new Table { BorderBrush = BrTableBorder, BorderThickness = new Thickness(1), CellSpacing = 0, Margin = new Thickness(0, 6, 0, 10) };
         foreach (var h in headers) table.Columns.Add(new TableColumn { Width = GridLength.Auto });
         var hg = new TableRowGroup(); var hr = new TableRow();
         for (int c = 0; c < headers.Count; c++) hr.Cells.Add(new TableCell(new Paragraph(new Run(headers[c].Trim()) { Foreground = BrHeading, FontWeight = System.Windows.FontWeights.Bold }) { Margin = new Thickness(0), Padding = new Thickness(8, 4, 8, 4) }) { Background = BrTableHeader, BorderBrush = BrTableBorder, BorderThickness = new Thickness(1), TextAlignment = GetAlign(aligns, c) });
         hg.Rows.Add(hr); table.RowGroups.Add(hg);
         var dg = new TableRowGroup();
-        for (int r = 2; r < tableLines.Count; r++) { var cols = ParseRow(tableLines[r]); var row = new TableRow(); for (int c = 0; c < Math.Min(cols.Count, headers.Count); c++) row.Cells.Add(new TableCell(new Paragraph(new Run(cols[c].Trim()) { Foreground = BrText }) { Margin = new Thickness(0), Padding = new Thickness(8, 4, 8, 4) }) { Background = BrTableCell, BorderBrush = BrTableBorder, BorderThickness = new Thickness(1), TextAlignment = GetAlign(aligns, c) }); for (int c = cols.Count; c < headers.Count; c++) row.Cells.Add(new TableCell(new Paragraph()) { BorderBrush = BrTableBorder, BorderThickness = new Thickness(1) }); dg.Rows.Add(row); }
+        for (int r = 1; r < dataLines.Count; r++) { var cols = ParseRow(dataLines[r]); var row = new TableRow(); for (int c = 0; c < Math.Min(cols.Count, headers.Count); c++) row.Cells.Add(new TableCell(new Paragraph(new Run(cols[c].Trim()) { Foreground = BrText }) { Margin = new Thickness(0), Padding = new Thickness(8, 4, 8, 4) }) { Background = BrTableCell, BorderBrush = BrTableBorder, BorderThickness = new Thickness(1), TextAlignment = GetAlign(aligns, c) }); for (int c = cols.Count; c < headers.Count; c++) row.Cells.Add(new TableCell(new Paragraph()) { BorderBrush = BrTableBorder, BorderThickness = new Thickness(1) }); dg.Rows.Add(row); }
         table.RowGroups.Add(dg); return table;
     }
     private static List<string> ParseRow(string l) => l.Trim('|').Split('|').Select(c => c.Trim()).ToList();

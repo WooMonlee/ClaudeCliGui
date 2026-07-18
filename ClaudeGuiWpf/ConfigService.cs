@@ -317,7 +317,12 @@ public class ConfigService
     /// <summary>首次启动填充预设提供商（仅在列表为空时）</summary>
     public void EnsurePresetProviders()
     {
-        if (_config.ApiProviders.Count > 0) return;
+        if (_config.ApiProviders.Count > 0)
+        {
+            // 修复过时的预设（如小米 Mino V2→V2.5）
+            FixOutdatedPresets();
+            return;
+        }
 
         // 尝试从已有环境变量读取 DeepSeek 的 Key
         var existingKey = Environment.GetEnvironmentVariable("ANTHROPIC_API_KEY", EnvironmentVariableTarget.User)
@@ -343,9 +348,9 @@ public class ConfigService
             new() { Name = "MiniMax", BaseUrl = "https://api.minimax.chat/anthropic",
                 Model = "minimax-m2", SmallFastModel = "minimax-m2", DefaultOpusModel = "minimax-m2",
                 Priority = 4, Tags = "文本" },
-            new() { Name = "小米 Mino", BaseUrl = "https://api.xiaomimimo.com/anthropic",
-                Model = "mimo-v2-flash", SmallFastModel = "mimo-v2-flash", DefaultOpusModel = "mimo-v2-flash",
-                Priority = 5, Tags = "文本" },
+            new() { Name = "小米 Mino", BaseUrl = "https://token-plan-cn.xiaomimimo.com/anthropic",
+                Model = "mimo-v2.5-pro", SmallFastModel = "mimo-v2.5", DefaultOpusModel = "mimo-v2.5-pro",
+                Priority = 5, Tags = "文本,无思考" },
         };
 
         lock (_lock)
@@ -353,6 +358,57 @@ public class ConfigService
             _config.ApiProviders = presets;
             if (!string.IsNullOrWhiteSpace(existingKey))
                 _config.ActiveProviderName = "DeepSeek";
+            Save();
+        }
+    }
+
+    /// <summary>修复过时的预设配置（更新已有 + 补全缺失的预设）</summary>
+    private void FixOutdatedPresets()
+    {
+        var changed = false;
+
+        // 更新过时的小米 Mino
+        var mimo = _config.ApiProviders.FirstOrDefault(p => p.Name == "小米 Mino");
+        if (mimo != null && mimo.BaseUrl.Contains("api.xiaomimimo.com"))
+        {
+            mimo.BaseUrl = "https://token-plan-cn.xiaomimimo.com/anthropic";
+            mimo.Model = "mimo-v2.5-pro";
+            mimo.SmallFastModel = "mimo-v2.5";
+            mimo.DefaultOpusModel = "mimo-v2.5-pro";
+            mimo.Tags = "文本,无思考";
+            changed = true;
+        }
+
+        // 补全缺失的预设（按 Priority 插入）
+        var allNames = _config.ApiProviders.Select(p => p.Name).ToHashSet();
+        void AddIfMissing(ApiProviderConfig preset)
+        {
+            if (!allNames.Contains(preset.Name))
+            {
+                _config.ApiProviders.Add(preset);
+                changed = true;
+            }
+        }
+
+        AddIfMissing(new ApiProviderConfig { Name = "小米 Mino", BaseUrl = "https://token-plan-cn.xiaomimimo.com/anthropic",
+            Model = "mimo-v2.5-pro", SmallFastModel = "mimo-v2.5", DefaultOpusModel = "mimo-v2.5-pro",
+            Priority = 5, Tags = "文本,无思考" });
+        AddIfMissing(new ApiProviderConfig { Name = "MiniMax", BaseUrl = "https://api.minimax.chat/anthropic",
+            Model = "minimax-m2", SmallFastModel = "minimax-m2", DefaultOpusModel = "minimax-m2",
+            Priority = 4, Tags = "文本" });
+        AddIfMissing(new ApiProviderConfig { Name = "阿里百练", BaseUrl = "https://dashscope.aliyuncs.com/compatible-mode/anthropic",
+            Model = "qwen-plus", SmallFastModel = "qwen-plus", DefaultOpusModel = "qwen-max",
+            Priority = 1, Tags = "多模态" });
+        AddIfMissing(new ApiProviderConfig { Name = "智谱 GLM", BaseUrl = "https://open.bigmodel.cn/api/anthropic",
+            Model = "glm-4-plus", SmallFastModel = "glm-4-flash", DefaultOpusModel = "glm-4-plus",
+            Priority = 2, Tags = "文本" });
+        AddIfMissing(new ApiProviderConfig { Name = "KIMI", BaseUrl = "https://api.moonshot.cn/anthropic",
+            Model = "kimi-latest", SmallFastModel = "kimi-latest", DefaultOpusModel = "kimi-latest",
+            Priority = 3, Tags = "长文本" });
+
+        if (changed)
+        {
+            Logger.Info("已修复/补全 API 预设");
             Save();
         }
     }
