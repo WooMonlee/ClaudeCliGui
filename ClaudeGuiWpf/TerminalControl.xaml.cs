@@ -540,6 +540,22 @@ public partial class TerminalControl : System.Windows.Controls.UserControl
         OutputBox.ScrollToEnd();
     }
 
+    /// <summary>系统消息（更新通知等），MainWindow 调用</summary>
+    public void ShowSystemMessage(string text)
+    {
+        var para = new Paragraph(new Run(text))
+        {
+            Foreground = new SolidColorBrush(System.Windows.Media.Color.FromRgb(0x88, 0x92, 0xb0)),
+            Background = new SolidColorBrush(System.Windows.Media.Color.FromRgb(0x1a, 0x2a, 0x1a)),
+            Margin = new Thickness(0, 4, 0, 4),
+            LineHeight = 20,
+            Padding = new Thickness(8, 4, 8, 4)
+        };
+        OutputBox.Document.Blocks.Add(para);
+        NewOutputParagraph();
+        OutputBox.ScrollToEnd();
+    }
+
     // ===== 历史快照 =====
 
     public void LoadFullSnapshot(List<(string role, string content)> allMessages)

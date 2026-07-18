@@ -685,12 +685,26 @@ public partial class MainWindow : Window
 
     // ============ 自动更新 ============
 
-    private static async Task CheckForUpdateAsync()
+    private bool _selfUpdateReady;   // 自己已下载 .new.exe
+    private string? _selfUpdateTag;   // 新版本号
+    private string? _selfUpdatePath;  // 下载路径
+    private bool _cliUpdateReady;    // Claude CLI 已更新完成
+    private string? _cliNewVersion;
+
+    private async Task CheckForUpdateAsync()
+    {
+        // 双路并行检测
+        await Task.WhenAll(CheckSelfUpdateAsync(), CheckCliUpdateAsync());
+        Dispatcher.Invoke(UpdateDotState);
+    }
+
+    /// <summary>自己：查 GitHub release → 下载 claudeCliGui.new.exe</summary>
+    private async Task CheckSelfUpdateAsync()
     {
         try
         {
             using var hc = new System.Net.Http.HttpClient { Timeout = TimeSpan.FromSeconds(15) };
-            hc.DefaultRequestHeaders.Add("User-Agent", "ClaudeG");
+            hc.DefaultRequestHeaders.Add("User-Agent", "ClaudeGui");
             var json = await hc.GetStringAsync("https://api.github.com/repos/WooMonlee/ClaudeCliGui/releases/latest");
             using var doc = JsonDocument.Parse(json);
             var tag = doc.RootElement.GetProperty("tag_name").GetString();
@@ -702,22 +716,127 @@ public partial class MainWindow : Window
 
             if (tag == null || downloadUrl == null) return;
 
-            // 修复 L7：用 SemanticVersion 比较
+            // 版本比较：提取数字部分（兼容 v1.0.0-beta → 1.0.0）
             var currentVer = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version;
             var currentStr = currentVer != null ? $"{currentVer.Major}.{currentVer.Minor}.{currentVer.Build}" : "0.0";
-            var tagVer = tag.StartsWith("v") ? tag[1..] : tag;
-            if (tagVer == currentStr) return;
+            var tagNum = ExtractSemver(tag.StartsWith("v") ? tag[1..] : tag);
+            var curNum = ExtractSemver(currentStr);
+            if (tagNum == curNum) return;
 
             var exeDir = Path.GetDirectoryName(Environment.ProcessPath) ?? Directory.GetCurrentDirectory();
             var newPath = Path.Combine(exeDir, "claudeCliGui.new.exe");
-            if (File.Exists(newPath)) return; // 已在下载
+            if (File.Exists(newPath)) { _selfUpdateReady = true; _selfUpdateTag = tag; _selfUpdatePath = exeDir; return; } // 已下载
 
-            Logger.Info($"发现新版本: {tag}，正在下载...");
+            Logger.Info($"发现新版本: {tag} (当前 {currentStr})，正在下载...");
             var data = await hc.GetByteArrayAsync(downloadUrl);
-            File.WriteAllBytes(newPath, data);
+            await File.WriteAllBytesAsync(newPath, data);
+            _selfUpdateReady = true;
+            _selfUpdateTag = tag;
+            _selfUpdatePath = exeDir;
             Logger.Info($"新版本已下载: {newPath}，下次启动时更新");
+            Dispatcher.Invoke(() => _activeTerminal?.ShowSystemMessage(
+                $"📦 已下载 ClaudeCliGui {tag} 到 {exeDir}，将在下次启动时启用。（{DateTime.Now:yyyy年M月d日}）"));
         }
-        catch (Exception ex) { Logger.Info($"更新检测跳过: {ex.Message}"); }
+        catch (Exception ex) { Logger.Info($"自身更新检测跳过: {ex.Message}"); }
+    }
+
+    /// <summary>Claude CLI：npm registry 查最新版 → 对比本地 → npm update</summary>
+    private async Task CheckCliUpdateAsync()
+    {
+        try
+        {
+            // 查本地版本
+            var localVer = (await RunCliVersionAsync("claude", "--version")).Trim();
+            if (string.IsNullOrWhiteSpace(localVer)) return;
+
+            // 查 npm 最新版
+            var npmVer = (await RunCliVersionAsync("npm", "view @anthropic-ai/claude-code version")).Trim();
+            if (string.IsNullOrWhiteSpace(npmVer)) return;
+
+            if (localVer == npmVer) return;
+
+            Logger.Info($"Claude CLI 更新: {localVer} → {npmVer}，正在更新...");
+            var psi = new ProcessStartInfo("npm", "install -g @anthropic-ai/claude-code --registry=https://registry.npmmirror.com")
+            {
+                RedirectStandardOutput = true, RedirectStandardError = true,
+                UseShellExecute = false, CreateNoWindow = true
+            };
+            using var proc = Process.Start(psi);
+            if (proc == null) return;
+            await proc.WaitForExitAsync();
+            if (proc.ExitCode == 0)
+            {
+                _cliUpdateReady = true;
+                _cliNewVersion = npmVer;
+                Logger.Info($"Claude CLI 已更新到 {npmVer}");
+                Dispatcher.Invoke(() => _activeTerminal?.ShowSystemMessage(
+                    $"✅ 已更新 Claude Code CLI 到 {npmVer}，无需重启。（{DateTime.Now:yyyy年M月d日}）"));
+            }
+        }
+        catch (Exception ex) { Logger.Info($"CLI 更新检测跳过: {ex.Message}"); }
+    }
+
+    private static async Task<string> RunCliVersionAsync(string exe, string args)
+    {
+        try
+        {
+            var psi = new ProcessStartInfo(exe, args) { RedirectStandardOutput = true, UseShellExecute = false, CreateNoWindow = true };
+            using var proc = Process.Start(psi);
+            if (proc == null) return "";
+            var output = await proc.StandardOutput.ReadToEndAsync();
+            await proc.WaitForExitAsync();
+            return output;
+        }
+        catch { return ""; }
+    }
+
+    /// <summary>提取 x.y.z 数字前缀用于版本比较</summary>
+    private static string ExtractSemver(string tag)
+    {
+        var match = System.Text.RegularExpressions.Regex.Match(tag, @"^(\d+\.\d+\.\d+)");
+        return match.Success ? match.Value : tag;
+    }
+
+    private void UpdateDotState()
+    {
+        if (_selfUpdateReady)
+        {
+            BtnUpdateDot.Foreground = new SolidColorBrush(System.Windows.Media.Color.FromRgb(0x64, 0xff, 0xda));
+            BtnUpdateDot.ToolTip = $"ClaudeCliGui 有更新 {_selfUpdateTag}，已下载，点击重启更新";
+            // 呼吸动画
+            if (BtnUpdateDot.Resources["UpdateGlow"] is System.Windows.Media.Animation.Storyboard sb)
+                sb.Begin();
+        }
+        else if (_cliUpdateReady)
+        {
+            BtnUpdateDot.Foreground = new SolidColorBrush(System.Windows.Media.Color.FromRgb(0x80, 0xb3, 0xff));
+            BtnUpdateDot.ToolTip = $"Claude CLI 已更新到 {_cliNewVersion}，点击确认";
+        }
+        else
+        {
+            if (BtnUpdateDot.Resources["UpdateGlow"] is System.Windows.Media.Animation.Storyboard sb)
+                sb.Stop();
+            BtnUpdateDot.Foreground = new SolidColorBrush(System.Windows.Media.Color.FromRgb(0x16, 0x21, 0x3e));
+            BtnUpdateDot.ToolTip = "";
+        }
+    }
+
+    private void UpdateDot_Click(object sender, RoutedEventArgs e)
+    {
+        if (_selfUpdateReady)
+        {
+            var exePath = Environment.ProcessPath!;
+            Process.Start(exePath);
+            Application.Current.Shutdown();
+        }
+        else if (_cliUpdateReady)
+        {
+            _activeTerminal?.ShowSystemMessage(
+                $"✅ Claude Code CLI 已更新到 {_cliNewVersion}，无需重启，下次对话生效。");
+            _cliUpdateReady = false;
+            _cliNewVersion = null;
+            UpdateDotState();
+        }
     }
 
     // ============ 右键菜单切换 ============
