@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Diagnostics;
+using System.IO;
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
@@ -53,9 +54,30 @@ public partial class MainWindow : Window
         UpdateMenuStatusText();
         RefreshProjectList();
 
-        // 恢复上次关闭时的项目
+        // 先处理 --add-project 参数（来自右键菜单），必须在 return 之前
+        var args = Environment.GetCommandLineArgs();
+        ProjectEntry? addedProject = null;
+        for (int i = 1; i < args.Length; i++)
+        {
+            if (args[i] == "--add-project" && i + 1 < args.Length && Directory.Exists(args[i + 1]))
+            {
+                var existing = _config.GetProjects().FirstOrDefault(p => NormalizePath(p.Path) == NormalizePath(args[i + 1]));
+                if (existing == null) try { existing = _config.AddExistingProject(args[i + 1]); } catch { }
+                addedProject = existing;
+                break;
+            }
+        }
+        if (addedProject != null) { RefreshProjectList(); }
+
+        // 恢复上次关闭时的项目（--add-project 优先）
         var lastProjectName = _config.GetConfigValue("lastActiveProject", "");
-        if (!string.IsNullOrWhiteSpace(lastProjectName))
+        if (addedProject != null)
+        {
+            // 右键菜单启动：切换到添加的项目
+            Logger.Info($"右键添加并切换项目: {addedProject.Name}");
+            SelectProject(addedProject);
+        }
+        else if (!string.IsNullOrWhiteSpace(lastProjectName))
         {
             var lastProj = _config.GetProject(lastProjectName);
             if (lastProj != null && Directory.Exists(lastProj.Path))
@@ -64,6 +86,7 @@ public partial class MainWindow : Window
                 SelectProject(lastProj);
                 _ = CheckForUpdateAsync();
                 RunStartupPreload();
+                StartAddProjectWatcher();
                 return;
             }
         }
@@ -73,17 +96,8 @@ public partial class MainWindow : Window
         // 按策略预载入项目
         RunStartupPreload();
 
-        var args = Environment.GetCommandLineArgs();
-        for (int i = 1; i < args.Length; i++)
-        {
-            if (args[i] == "--add-project" && i + 1 < args.Length && Directory.Exists(args[i + 1]))
-            {
-                var existing = _config.GetProjects().FirstOrDefault(p => NormalizePath(p.Path) == NormalizePath(args[i + 1]));
-                if (existing == null) try { existing = _config.AddExistingProject(args[i + 1]); } catch { }
-                if (existing != null) { RefreshProjectList(); SelectProject(existing); }
-                break;
-            }
-        }
+        // 启动 IPC 轮询（后续右键菜单窗口激活后添加项目）
+        StartAddProjectWatcher();
     }
 
     // ============ 项目列表 ============
@@ -389,6 +403,83 @@ public partial class MainWindow : Window
         }
     }
 
+    private void MoreProject_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button btn || btn.Tag is not ProjectItem item) return;
+
+	        // Popup 自定义下拉菜单（避开 MenuItem 默认图标列白色底问题）
+        System.Windows.Controls.Primitives.Popup? popup = null;
+        var border = new System.Windows.Controls.Border
+        {
+            Background = new SolidColorBrush(Color.FromRgb(0x1a, 0x1a, 0x2e)),
+            BorderBrush = new SolidColorBrush(Color.FromRgb(0x23, 0x35, 0x54)),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new System.Windows.CornerRadius(6),
+            Padding = new Thickness(4),
+        };
+        var panel = new System.Windows.Controls.StackPanel { };
+
+        void AddItem(string emoji, string text, Action onClick)
+        {
+            var b = new System.Windows.Controls.Button
+            {
+                Content = new System.Windows.Controls.TextBlock
+                {
+                    Text = $"{emoji}  {text}",
+                    FontSize = 13,
+                    Foreground = new SolidColorBrush(Color.FromRgb(0xe0, 0xe0, 0xe0)),
+                },
+                Background = Brushes.Transparent,
+                BorderThickness = new Thickness(0),
+                Cursor = System.Windows.Input.Cursors.Hand,
+                Padding = new Thickness(8, 6, 16, 6),
+                HorizontalContentAlignment = System.Windows.HorizontalAlignment.Left,
+                MinWidth = 160,
+            };
+            b.MouseEnter += (_, _) => b.Background = new SolidColorBrush(Color.FromRgb(0x23, 0x35, 0x54));
+            b.MouseLeave += (_, _) => b.Background = Brushes.Transparent;
+            b.Click += (_, _) => { popup!.IsOpen = false; onClick(); };
+            panel.Children.Add(b);
+        }
+
+        AddItem("📂", "打开项目文件夹", () =>
+        {
+            try { System.Diagnostics.Process.Start("explorer.exe", item.Original?.Path ?? item.Path); }
+            catch { }
+        });
+        panel.Children.Add(new System.Windows.Controls.Separator
+        {
+            Background = new SolidColorBrush(Color.FromRgb(0x33, 0x33, 0x33)),
+            Height = 1, Margin = new Thickness(4, 2, 4, 2)
+        });
+        AddItem("✏️", "重命名", () =>
+        {
+            var fakeBtn = new System.Windows.Controls.Button { Tag = item };
+            RenameProject_Click(fakeBtn, new RoutedEventArgs());
+        });
+        panel.Children.Add(new System.Windows.Controls.Separator
+        {
+            Background = new SolidColorBrush(Color.FromRgb(0x33, 0x33, 0x33)),
+            Height = 1, Margin = new Thickness(4, 2, 4, 2)
+        });
+        AddItem("🗑️", "删除项目", () =>
+        {
+            var fakeBtn = new System.Windows.Controls.Button { Tag = item };
+            DeleteProject_Click(fakeBtn, new RoutedEventArgs());
+        });
+
+        border.Child = panel;
+        popup = new System.Windows.Controls.Primitives.Popup
+        {
+            Child = border,
+            Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom,
+            PlacementTarget = btn,
+        };
+        popup.Closed += (_, _) => btn.Background = Brushes.Transparent;
+        popup.StaysOpen = false;
+        popup.IsOpen = true;
+    }
+
     private void DeleteProject_Click(object sender, RoutedEventArgs e)
     {
         if (sender is Button btn && btn.Tag is ProjectItem item)
@@ -523,6 +614,9 @@ public partial class MainWindow : Window
                     WindowState = WindowState.Normal;
                     Activate();
                     Logger.Info("新实例触发恢复，取消后台退出");
+
+                    // 立即处理 IPC 文件（新实例可能写了 --add-project 路径）
+                    ProcessAddProjectFile();
                     return;
                 }
 
@@ -535,6 +629,7 @@ public partial class MainWindow : Window
                     DisposeAllTerminals();
                     try { _config.Save(); } catch { }
                     try { _cancelExitEvent?.Dispose(); } catch { }
+                    _ipcWatcher?.Dispose();
                     Environment.Exit(0);
                 }
             };
@@ -546,6 +641,7 @@ public partial class MainWindow : Window
         // 修复 R2：正常退出时释放 EventWaitHandle
         try { _cancelExitEvent?.Dispose(); } catch { }
         _cancelExitEvent = null;
+        _ipcWatcher?.Dispose();
         try { _config.Save(); } catch (Exception ex) { Logger.Error("Config.Save 失败", ex); }
         base.OnClosing(e);
     }
@@ -885,6 +981,78 @@ public partial class MainWindow : Window
 
     private static string NormalizePath(string p)
         => p.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar).Replace("/", "\\").ToLowerInvariant();
+
+    /// <summary>打开聊天记录速览窗口（从 TerminalControl 快捷指令调用）</summary>
+    public void OpenChatHistoryViewer(string projectDir)
+    {
+        if (string.IsNullOrWhiteSpace(projectDir) || !Directory.Exists(projectDir)) return;
+        var win = new ChatHistoryWindow(projectDir, _config) { Owner = this };
+        win.Show();
+    }
+
+    // ============ IPC：右键菜单跨实例添加项目 ============
+
+    private static string IpcFilePath => Path.Combine(Path.GetTempPath(), "claudeCliGui-add-project.txt");
+
+    /// <summary>启动轮询定时器，监听临时文件中的 --add-project 路径</summary>
+    private void StartAddProjectWatcher()
+    {
+        try
+        {
+            // 启动时处理残留文件
+            ProcessAddProjectFile();
+
+            // System.Threading.Timer 比 DispatcherTimer 更可靠
+            var t = new System.Threading.Timer(
+                _ => Dispatcher.Invoke(ProcessAddProjectFile),
+                null, TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(2));
+            // 改为字段存储以阻止 GC
+            _ipcWatcher = t;
+            Logger.Info("IPC 监听已启动");
+        }
+        catch { }
+    }
+    private System.Threading.Timer? _ipcWatcher;
+
+    /// <summary>读取临时文件中的项目路径，添加并切换到该项目</summary>
+    private void ProcessAddProjectFile()
+    {
+        var filePath = IpcFilePath;
+        if (!File.Exists(filePath)) return;
+
+        string? path;
+        try
+        {
+            path = File.ReadAllText(filePath).Trim();
+            File.Delete(filePath);
+            Logger.Info($"IPC 读取到路径: {path}");
+        }
+        catch (Exception ex)
+        {
+            Logger.Warn($"IPC 文件读取失败: {ex.Message}");
+            return;
+        }
+
+        if (!Directory.Exists(path))
+        {
+            Logger.Warn($"IPC 路径不存在: {path}");
+            return;
+        }
+
+        try
+        {
+            var existing = _config.GetProjects().FirstOrDefault(p => NormalizePath(p.Path) == NormalizePath(path));
+            if (existing == null)
+                existing = _config.AddExistingProject(path);
+            if (existing != null)
+            {
+                RefreshProjectList();
+                SelectProject(existing);
+                Logger.Info($"IPC 添加并切换到项目: {existing.Name}");
+            }
+        }
+        catch { }
+    }
 
     private static IEnumerable<T> FindVisualChildren<T>(DependencyObject parent) where T : DependencyObject
     {

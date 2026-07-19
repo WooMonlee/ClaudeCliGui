@@ -69,7 +69,15 @@ public static class MarkdownRenderer
             else if (m.Groups[5].Success)
             {
                 var hl = new Hyperlink(new Run(m.Groups[6].Value) { Foreground = BrCode }) { NavigateUri = new Uri(m.Groups[7].Value), ToolTip = m.Groups[7].Value };
-                hl.RequestNavigate += (_, e) => { try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(e.Uri.ToString()) { UseShellExecute = true }); } catch { } };
+                hl.RequestNavigate += (_, e) =>
+                {
+                    try
+                    {
+                        if (e.Uri.Scheme is "http" or "https")
+                            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(e.Uri.ToString()) { UseShellExecute = true });
+                    }
+                    catch { }
+                };
                 para.Inlines.Add(hl);
             }
             else if (m.Groups[8].Success) para.Inlines.Add(new Italic(new Run(m.Groups[9].Value) { Foreground = BrText }));
@@ -93,21 +101,19 @@ public static class MarkdownRenderer
         if (start + 1 >= lines.Length) return false;
         var l1 = lines[start];
         var l2 = lines[start + 1];
-        // 两行都必须含管道符
         if (!l1.Contains('|') || !l2.Contains('|')) return false;
-        // 分隔行：仅由 |、-、:、空格组成
-        return Regex.IsMatch(l2.Trim(), @"^[\s\-:|]+$");
+        // 分隔行：仅由 |、-、:、空格组成（含对齐冒号 |:---|:---:|）
+        return Regex.IsMatch(l2.Trim(), @"^[\s\-:|:]+$");
     }
 
-    private static bool IsTableLine(string l) => l.Contains('|') && Regex.IsMatch(l.Trim(), @"^[\s\-:|]+$") || (l.Contains('|') && !l.TrimStart().StartsWith("```"));
+    private static bool IsTableLine(string l) => l.Contains('|') && Regex.IsMatch(l.Trim(), @"^[\s\-:|:]+$") || (l.Contains('|') && !l.TrimStart().StartsWith("```"));
 
     private static Block RenderTable(string[] lines, ref int i)
     {
         var tableLines = new List<string>();
-        // 读取所有含 | 的连续行
         while (i < lines.Length && lines[i].Contains('|')) { tableLines.Add(lines[i].Trim()); i++; }
-        // 跳过纯分隔行（只有 |-: 字符）
-        var dataLines = tableLines.Where(l => !Regex.IsMatch(l, @"^[\s\-:|]+$")).ToList();
+        // 跳过纯分隔行
+        var dataLines = tableLines.Where(l => !Regex.IsMatch(l, @"^[\s\-:|:]+$")).ToList();
         if (dataLines.Count < 1) return new Paragraph(new Run("(空表格)"));
         var headers = ParseRow(dataLines[0]);
         var aligns = tableLines.Count > 1 ? ParseRow(tableLines[1]) : new List<string>();

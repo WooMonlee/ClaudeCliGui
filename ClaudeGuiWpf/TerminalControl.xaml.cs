@@ -63,6 +63,7 @@ public partial class TerminalControl : System.Windows.Controls.UserControl
         ("📄 生成文档", "请为这个项目生成README文档"),
         ("💬 添加注释", "请为代码添加详细的中文注释"),
         ("🗜️ 压缩上下文", "/compact"),
+        ("📋 聊天记录速览", "history:quickview"),
         // 以下为权限模式（Tag 前缀 mode:，不替换输入框文本）
         ("⚡ 自动执行", "mode:bypassPermissions"),
         ("📋 计划模式", "mode:plan"),
@@ -99,7 +100,7 @@ public partial class TerminalControl : System.Windows.Controls.UserControl
         for (int i = 0; i < _skills.Length; i++)
         {
             var s = _skills[i];
-            if (i == 8) // 第 9 个起插入分隔线
+            if (i == 9) // 第 10 个起插入分隔线（前 9 个指令 + 聊天记录速览）
                 CmbSkills.Items.Add(new ComboBoxItem { Content = "──────────", Tag = "", IsEnabled = false });
             CmbSkills.Items.Add(new ComboBoxItem { Content = s.Label, Tag = s.Prompt, ToolTip = s.Prompt });
         }
@@ -139,6 +140,13 @@ public partial class TerminalControl : System.Windows.Controls.UserControl
                 // 临时覆盖本条消息的 API 提供商
                 _overrideProviderName = tag[9..];
                 Logger.Info($"提供商切换: {_overrideProviderName}");
+            }
+            else if (tag == "history:quickview")
+            {
+                // 打开聊天记录速览窗口
+                var win = Window.GetWindow(this);
+                if (win is MainWindow mw)
+                    mw.OpenChatHistoryViewer(_currentDir);
             }
             else if (tag == "reset") // 恢复默认提供商
             {
@@ -647,7 +655,9 @@ public partial class TerminalControl : System.Windows.Controls.UserControl
 
     private void OnProcessExited()
     {
-        var exitCode = _process?.ExitCode ?? 0;
+        int exitCode = -1;
+        try { exitCode = _process?.ExitCode ?? -1; }
+        catch (InvalidOperationException) { exitCode = -1; } // 进程已释放后访问 ExitCode
         var p = _process; _process = null;
         _ = Task.Run(() => { try { p?.Dispose(); } catch { } });
 
@@ -687,12 +697,23 @@ public partial class TerminalControl : System.Windows.Controls.UserControl
         StopWaitingAnimation();
         var proc = _process;
         _process = null;
-        if (proc != null && !proc.HasExited)
+        if (proc != null)
         {
-            try { proc.Kill(true); } catch { }
-            // 异步 Dispose，等 Exited 事件处理完毕
-            var p = proc;
-            _ = Task.Run(async () => { await Task.Delay(300); try { p?.Dispose(); } catch { } });
+            bool isAlive;
+            try { isAlive = !proc.HasExited; }
+            catch (InvalidOperationException) { isAlive = false; }
+            if (isAlive)
+            {
+                try { proc.Kill(true); } catch { }
+                // 延迟 Dispose，等 Exited 事件处理完毕
+                var p = proc;
+                _ = Task.Run(async () => { await Task.Delay(300); try { p?.Dispose(); } catch { } });
+            }
+            else
+            {
+                // 已退出的进程也需 Dispose
+                try { proc.Dispose(); } catch { }
+            }
         }
         _isRunning = false;
     }
@@ -709,17 +730,24 @@ public partial class TerminalControl : System.Windows.Controls.UserControl
         {
             var chatPath = Path.Combine(projectDir, "聊天记录.md");
 
-            // 超 3MB → 归档
+            // 超 3MB → 归档（使用 try-create 避免并发竞态）
             try
             {
                 if (File.Exists(chatPath) && new FileInfo(chatPath).Length >= ChatRecordMaxSize)
                 {
                     var memDir = Path.Combine(projectDir, ".claude", "memory");
                     Directory.CreateDirectory(memDir);
-                    // 找下一个可用编号
                     int seq = 1;
-                    while (File.Exists(Path.Combine(memDir, $"聊天记录{seq}.md"))) seq++;
-                    File.Move(chatPath, Path.Combine(memDir, $"聊天记录{seq}.md"));
+                    while (true)
+                    {
+                        var dest = Path.Combine(memDir, $"聊天记录{seq}.md");
+                        if (!File.Exists(dest))
+                        {
+                            try { File.Move(chatPath, dest); break; }
+                            catch (System.IO.IOException) { seq++; } // 并发冲突，试下一序号
+                        }
+                        else { seq++; }
+                    }
                 }
             }
             catch { /* 归档失败不阻塞写入 */ }
@@ -850,8 +878,8 @@ public partial class TerminalControl : System.Windows.Controls.UserControl
     public void RefreshSkillsProviders()
     {
         if (Config == null) return;
-        // 移除旧的提供商项（1 标题 + 8 指令 + 1 分隔 + 4 模式 = 14 个固定项）
-        while (CmbSkills.Items.Count > 14)
+        // 移除旧的提供商项（1 标题 + 9 指令 + 1 分隔 + 4 模式 = 15 个固定项）
+        while (CmbSkills.Items.Count > 15)
             CmbSkills.Items.RemoveAt(CmbSkills.Items.Count - 1);
 
         var allProviders = Config.GetProviders().ToList();

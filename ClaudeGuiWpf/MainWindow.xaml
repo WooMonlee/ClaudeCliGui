@@ -164,15 +164,11 @@
                                             </TextBlock>
                                         </StackPanel>
 
-                                        <!-- 操作按钮 -->
-                                        <StackPanel Grid.Column="2" Orientation="Horizontal">
-                                            <Button Content="✎" ToolTip="重命名" Click="RenameProject_Click"
-                                                    Tag="{Binding}" Style="{StaticResource SidebarBtn}"
-                                                    Width="36" Height="36" Padding="0" FontSize="13"/>
-                                            <Button Content="✕" ToolTip="删除" Click="DeleteProject_Click"
-                                                    Tag="{Binding}" Style="{StaticResource SidebarBtn}"
-                                                    Width="36" Height="36" Padding="0" FontSize="13"/>
-                                        </StackPanel>
+                                        <!-- 更多按钮 -->
+                                        <Button Grid.Column="2" Content="⋮" ToolTip="更多操作"
+                                                Click="MoreProject_Click"
+                                                Tag="{Binding}" Style="{StaticResource SidebarBtn}"
+                                                Width="36" Height="36" Padding="0" FontSize="18" FontWeight="Bold"/>
                                     </Grid>
                                         </Grid> <!-- 内层 Grid 闭合 -->
                                 </Border>

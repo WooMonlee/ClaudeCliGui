@@ -31,6 +31,22 @@ public partial class App : System.Windows.Application
         var existingHwnd = FindWindow(null, WindowTitle);
         if (existingHwnd != IntPtr.Zero)
         {
+            // 传递 --add-project 参数给运行中的实例（写临时文件做 IPC）
+            for (int i = 0; i < e.Args.Length; i++)
+            {
+                if (e.Args[i] == "--add-project" && i + 1 < e.Args.Length)
+                {
+                    try
+                    {
+                        File.WriteAllText(
+                            Path.Combine(Path.GetTempPath(), "claudeCliGui-add-project.txt"),
+                            e.Args[i + 1]);
+                    }
+                    catch { }
+                    break;
+                }
+            }
+
             // 发取消信号 → 旧实例停止退出计时器
             try
             {
