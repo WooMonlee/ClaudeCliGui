@@ -6,9 +6,8 @@
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="*"/>
-            <RowDefinition Height="Auto"/>  <!-- 思考面板（运行时动态显示） -->
             <RowDefinition Height="6"/>     <!-- 拖拽条 -->
-            <RowDefinition x:Name="InputRow" Height="100" MinHeight="40" MaxHeight="400"/>
+            <RowDefinition x:Name="InputRow" Height="100" MinHeight="40"/>
         </Grid.RowDefinitions>
 
         <!-- ===== 正式回复输出区域：纯渲染内容 ===== -->
@@ -33,10 +32,10 @@
                    HorizontalAlignment="Center" VerticalAlignment="Center"
                    Visibility="Visible"/>
 
-        <!-- ===== 思考面板：思考/tool_use/system 原始输出 ===== -->
-        <Border x:Name="ThinkingPanel" Grid.Row="1"
+        <!-- ===== 思考面板：思考/tool_use/system 原始输出（覆盖在 OutputBox 上方） ===== -->
+        <Border x:Name="ThinkingPanel" Grid.Row="0"
                 Background="#0a0a14" BorderBrush="#233554" BorderThickness="2"
-                Visibility="Collapsed" MaxHeight="200">
+                Visibility="Collapsed" MaxHeight="200" VerticalAlignment="Bottom">
             <Border.Resources>
                 <Storyboard x:Key="BreathingGlow" RepeatBehavior="Forever">
                     <ColorAnimation Storyboard.TargetName="ThinkingPanel"
@@ -61,12 +60,12 @@
         </Border>
 
         <!-- 拖拽条 -->
-        <GridSplitter Grid.Row="2" Height="6" HorizontalAlignment="Stretch"
+        <GridSplitter Grid.Row="1" Height="6" HorizontalAlignment="Stretch"
                       Background="#333333" ResizeBehavior="PreviousAndNext"
                       ResizeDirection="Rows" Cursor="SizeNS"/>
 
         <!-- 输入区域 -->
-        <Border Grid.Row="3" Background="#1a1a1a" BorderBrush="#333333" BorderThickness="0,1,0,0">
+        <Border Grid.Row="2" Background="#1a1a1a" BorderBrush="#333333" BorderThickness="0,1,0,0">
             <Grid Margin="10,4">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="*"/>
@@ -124,7 +123,7 @@
         </Border>
 
         <!-- ===== 思考全屏覆盖层 ===== -->
-        <Border x:Name="ThinkingOverlay" Grid.RowSpan="4"
+        <Border x:Name="ThinkingOverlay" Grid.RowSpan="3"
                 Background="#CC0c0c14" Visibility="Collapsed"
                 MouseLeftButtonDown="HideThinkingOverlay">
             <Border Width="720" MaxHeight="700"

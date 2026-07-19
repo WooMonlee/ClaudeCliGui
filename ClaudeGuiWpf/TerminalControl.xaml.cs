@@ -867,6 +867,15 @@ public partial class TerminalControl : System.Windows.Controls.UserControl
     public ConfigService? Config { get; set; }
     public bool IsProcessAlive => _process != null && !_process.HasExited;
 
+    /// <summary>在输入框光标位置插入文本（文件浏览器调用的左键功能）</summary>
+    public void InsertTextAtCursor(string text)
+    {
+        int pos = InputBox.CaretIndex;
+        InputBox.Text = InputBox.Text.Insert(pos, text);
+        InputBox.CaretIndex = pos + text.Length;
+        InputBox.Focus();
+    }
+
     /// <summary>当前项目的工作模式（MainWindow 切换项目时同步）</summary>
     public string PermissionMode
     {

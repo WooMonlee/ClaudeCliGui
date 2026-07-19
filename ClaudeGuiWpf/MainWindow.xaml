@@ -76,13 +76,31 @@
 
     <Grid>
         <Grid.ColumnDefinitions>
+            <ColumnDefinition x:Name="FileBrowserCol" Width="0" MinWidth="0" MaxWidth="350"/>
             <ColumnDefinition Width="260" MinWidth="200"/>
             <ColumnDefinition Width="5"/>  <!-- 分隔条 -->
             <ColumnDefinition Width="*"/>
         </Grid.ColumnDefinitions>
 
+        <!-- ======== 左侧：文件浏览器（TreeView 可折叠） ======== -->
+        <Border x:Name="FileBrowserPanel" Grid.Column="0" Background="#12121e" Visibility="Collapsed">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                </Grid.RowDefinitions>
+                <TextBlock x:Name="FileBrowserTitle" Grid.Row="0"
+                           Text="📂 项目文件" FontSize="13" FontWeight="SemiBold"
+                           Foreground="#64ffda" Margin="12,10,12,6"/>
+                <ScrollViewer x:Name="FileBrowserScroll" Grid.Row="1" VerticalScrollBarVisibility="Auto"
+                              Background="Transparent" Margin="0">
+                    <StackPanel x:Name="FileBrowserPanelInner" Background="Transparent"/>
+                </ScrollViewer>
+            </Grid>
+        </Border>
+
         <!-- ======== 左侧：项目面板 ======== -->
-        <Border Grid.Column="0" Background="#16213e">
+        <Border Grid.Column="1" Background="#16213e">
             <Grid>
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto"/>
@@ -177,14 +195,20 @@
                     </ItemsControl>
                 </ScrollViewer>
 
-                <!-- 系统设置 + 更新指示灯 -->
+                <!-- 系统设置 + 文件浏览器 + 更新指示灯 -->
                 <Grid Grid.Row="3" Margin="16,4,16,10">
                     <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
                         <ColumnDefinition Width="Auto"/>
                         <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
-                    <Button Grid.Column="0" Content="系统设置" Height="32"
+                    <Button x:Name="BtnFileBrowser" Grid.Column="0" Content="📂" Height="32" Width="36"
+                            Background="#233554" Foreground="#8892b0" FontSize="11"
+                            BorderBrush="#233554" BorderThickness="1"
+                            Cursor="Hand" Click="ToggleFileBrowser_Click"
+                            ToolTip="打开/关闭项目文件浏览器"/>
+                    <Button Grid.Column="1" Content="系统设置" Height="32" Margin="4,0,0,0"
                             Background="#233554" Foreground="#8892b0" FontSize="12"
                             BorderBrush="#233554" BorderThickness="1" Padding="10,0"
                             Cursor="Hand" Click="SystemSettings_Click"
@@ -209,12 +233,12 @@
         </Border>
 
         <!-- ======== 分隔条 ======== -->
-        <GridSplitter Grid.Column="1" Width="5" Background="#233554"
+        <GridSplitter Grid.Column="2" Width="5" Background="#233554"
                       HorizontalAlignment="Stretch"
                       ResizeBehavior="PreviousAndNext"/>
 
         <!-- ======== 右侧：设置向导 / 终端 ======== -->
-        <Grid Grid.Column="2">
+        <Grid Grid.Column="3">
             <!-- 设置向导（仅环境不完整时显示） -->
             <local:SetupPage x:Name="SetupPage" Visibility="Collapsed"/>
 

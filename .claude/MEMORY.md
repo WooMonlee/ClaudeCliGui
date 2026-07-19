@@ -1,0 +1,3 @@
+- [build-and-deploy](memory/build-and-deploy.md) — 每次修改后编译并部署到两个位置
+- [dual-pane-design](memory/dual-pane-design.md) — 双窗口架构设计决策（正式回复+思考面板）
+- [code-review-findings](memory/code-review-findings.md) — 2026-07-16 深度代码审查发现的15个问题

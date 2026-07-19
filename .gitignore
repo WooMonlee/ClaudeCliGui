@@ -2,6 +2,11 @@
 ClaudeGuiWpf/bin/
 ClaudeGuiWpf/obj/
 claudeg.exe
+claudeCliGui.exe
+
+# 会话记忆（本地临时数据）
+.claude/memory/
+.claude/conversation_log.md
 
 # 调试日志
 *.log
