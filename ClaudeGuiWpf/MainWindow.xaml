@@ -140,24 +140,14 @@
                                                 Background="#64ffda" CornerRadius="2"
                                                 Visibility="{Binding IsActive, Converter={StaticResource BoolToVisibility}}"/>
 
-                                        <Grid Margin="7,0,0,0">
+                                        <Grid Margin="4,0,0,0">
                                         <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="Auto"/>
                                             <ColumnDefinition Width="*"/>
                                             <ColumnDefinition Width="Auto"/>
                                         </Grid.ColumnDefinitions>
 
-                                        <!-- 图标和活跃点 -->
-                                        <Grid Grid.Column="0" Width="24" Height="24">
-                                            <TextBlock Text="&#128193;" FontSize="16" VerticalAlignment="Center"/>
-                                            <Ellipse Width="6" Height="6" Fill="#4caf50"
-                                                     HorizontalAlignment="Right" VerticalAlignment="Bottom"
-                                                     Margin="0,0,-1,-1"
-                                                     Visibility="{Binding IsActive, Converter={StaticResource BoolToVisibility}}"/>
-                                        </Grid>
-
                                         <!-- 名称+路径 -->
-                                        <StackPanel Grid.Column="1" Margin="8,0,0,0">
+                                        <StackPanel Grid.Column="0">
                                             <TextBlock Text="{Binding Name}" FontSize="13" FontWeight="SemiBold"
                                                        Foreground="#e0e0e0"/>
                                             <TextBlock Text="{Binding Path}" FontSize="10" Foreground="#8892b0"
@@ -169,7 +159,7 @@
                                         </StackPanel>
 
                                         <!-- 更多按钮 -->
-                                        <Button Grid.Column="2" Content="⋮" ToolTip="更多操作"
+                                        <Button Grid.Column="1" Content="⋮" ToolTip="更多操作"
                                                 Click="MoreProject_Click"
                                                 Tag="{Binding}" Style="{StaticResource SidebarBtn}"
                                                 Width="36" Height="36" Padding="0" FontSize="18" FontWeight="Bold"/>
