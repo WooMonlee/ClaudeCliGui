@@ -1,13 +1,17 @@
 <p align="center">
-  <h1 align="center">ClaudeCliGui</h1>
+  <h1 align="center">ClaudeCli管家</h1>
   <p align="center">Windows 原生 Claude Code CLI 图形外壳<br>
   <sub>无需 CC-switch 等代理工具，打开即用，全程国内镜像自动部署</sub></p>
 </p>
 
 <p align="center">
+  <img src="1.1.7界面.png" alt="ClaudeCli管家 v1.1.7 主界面" width="800">
+</p>
+
+<p align="center">
   <img src="https://img.shields.io/badge/.NET-8.0-512BD4?logo=dotnet" alt=".NET 8">
   <img src="https://img.shields.io/badge/platform-Windows%2010%2B-blue?logo=windows" alt="Windows 10+">
-  <img src="https://img.shields.io/badge/release-v1.0.0-64ffda" alt="v1.0.0">
+  <img src="https://img.shields.io/badge/release-v1.1.7-64ffda" alt="v1.1.7">
   <img src="https://img.shields.io/badge/license-MIT-green" alt="MIT">
 </p>
 
