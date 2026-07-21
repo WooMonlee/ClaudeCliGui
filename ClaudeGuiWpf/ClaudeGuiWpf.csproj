@@ -10,6 +10,7 @@
     <RootNamespace>ClaudeGui</RootNamespace>
     <AssemblyName>claudeCliGui</AssemblyName>
     <Version>1.1.6</Version>
+    <AssemblyVersion>1.1.6.0</AssemblyVersion>
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <ApplicationIcon>D:\Prog\ProgIDE\Claude\bin\claude.ico</ApplicationIcon>
 

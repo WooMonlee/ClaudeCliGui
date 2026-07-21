@@ -711,7 +711,9 @@ public partial class MainWindow : Window
             var currentStr = currentVer != null ? $"{currentVer.Major}.{currentVer.Minor}.{currentVer.Build}" : "0.0";
             var tagNum = ExtractSemver(tag.StartsWith("v") ? tag[1..] : tag);
             var curNum = ExtractSemver(currentStr);
-            if (tagNum == curNum) return;
+            // 只有远程 > 本地才更新，防止旧版本覆盖新版本
+            if (Version.TryParse(tagNum, out var remoteV) && Version.TryParse(curNum, out var localV) && remoteV <= localV)
+                return;
 
             var exeDir = Path.GetDirectoryName(Environment.ProcessPath) ?? Directory.GetCurrentDirectory();
             var newPath = Path.Combine(exeDir, "claudeCliGui.new.exe");
@@ -886,7 +888,7 @@ public partial class MainWindow : Window
     {
         _fileBrowserOpen = !_fileBrowserOpen;
         FileBrowserCol.Width = _fileBrowserOpen ? new GridLength(260) : new GridLength(0);
-        FileBrowserTree.Visibility = _fileBrowserOpen ? Visibility.Visible : Visibility.Collapsed;
+        FileBrowserOuter.Visibility = _fileBrowserOpen ? Visibility.Visible : Visibility.Collapsed;
 
         if (_fileBrowserOpen && _currentProject != null)
             FileBrowserTree.Refresh(_currentProject.Path);
