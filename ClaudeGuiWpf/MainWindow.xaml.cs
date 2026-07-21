@@ -147,6 +147,8 @@ public partial class MainWindow : Window
             if (File.Exists(portableClaude)) tcNew.ClaudePath = portableClaude;
         }
         tcNew.RefreshSkillsProviders();
+        // 备忘记事本切换事件
+        tcNew.ToggleNotebook += ToggleNotebook;
         _terminals[projectPath] = tcNew;
         return tcNew;
     }
@@ -187,6 +189,13 @@ public partial class MainWindow : Window
 
         // 刷新文件浏览器
         FileBrowserTree.Refresh(project.Path);
+
+        // 备忘记事本切换项目时加载对应内容
+        if (_notebookOpen)
+        {
+            SaveNotebook();
+            LoadNotebook();
+        }
     }
 
     private void PreloadIfNeeded(TerminalControl tc, string projectPath)
@@ -880,6 +889,73 @@ public partial class MainWindow : Window
 
         if (_fileBrowserOpen && _currentProject != null)
             FileBrowserTree.Refresh(_currentProject.Path);
+    }
+
+    // ============ 备忘记事本 ============
+
+    private bool _notebookOpen;
+
+    private void ToggleNotebook()
+    {
+        _notebookOpen = !_notebookOpen;
+        NotebookCol.Width = _notebookOpen ? new GridLength(260) : new GridLength(0);
+        NotebookPanel.Visibility = _notebookOpen ? Visibility.Visible : Visibility.Collapsed;
+
+        if (_notebookOpen)
+            LoadNotebook();
+        else
+            SaveNotebook();
+    }
+
+    private void NotebookBox_TextChanged(object sender, System.Windows.Controls.TextChangedEventArgs e)
+    {
+        // 用户改完内容自动保存（防抖由文件写入自己处理）
+        SaveNotebook();
+    }
+
+    private void NotebookClear_Click(object sender, RoutedEventArgs e)
+    {
+        if (System.Windows.MessageBox.Show("确定清空记事本内容？", "清空",
+            System.Windows.MessageBoxButton.YesNo, System.Windows.MessageBoxImage.Question) == System.Windows.MessageBoxResult.Yes)
+        {
+            NotebookBox.Text = "";
+            SaveNotebook();
+        }
+    }
+
+    /// <summary>当前项目路径 → 备忘记事.txt 路径</summary>
+    private string? GetNotebookPath()
+    {
+        if (_currentProject == null) return null;
+        var claudeDir = Path.Combine(_currentProject.Path, ".claude");
+        if (!Directory.Exists(claudeDir)) try { Directory.CreateDirectory(claudeDir); } catch { }
+        return Path.Combine(claudeDir, "备忘记事.txt");
+    }
+
+    private void LoadNotebook()
+    {
+        var path = GetNotebookPath();
+        if (path != null && File.Exists(path))
+        {
+            try { NotebookBox.Text = File.ReadAllText(path, System.Text.Encoding.UTF8); }
+            catch { NotebookBox.Text = ""; }
+        }
+        else
+            NotebookBox.Text = "";
+    }
+
+    private void SaveNotebook()
+    {
+        if (!_notebookOpen) return;
+        var path = GetNotebookPath();
+        if (path == null) return;
+        try
+        {
+            var dir = Path.GetDirectoryName(path);
+            if (dir != null && !Directory.Exists(dir)) Directory.CreateDirectory(dir);
+            File.WriteAllText(path, NotebookBox.Text, System.Text.Encoding.UTF8);
+        }
+        catch { }
     }
 
     private static string IpcFilePath => Path.Combine(Path.GetTempPath(), "claudeCliGui-add-project.txt");

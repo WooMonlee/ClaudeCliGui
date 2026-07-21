@@ -966,6 +966,16 @@ public partial class TerminalControl : System.Windows.Controls.UserControl
         finally { _sending = false; _overrideProviderName = null; }
     }
 
+    // ===== 备忘记事本 =====
+
+    /// <summary>点击记事本按钮时触发，MainWindow 订阅</summary>
+    public event Action? ToggleNotebook;
+
+    private void ToggleNotebook_Click(object sender, RoutedEventArgs e)
+    {
+        ToggleNotebook?.Invoke();
+    }
+
     // ===== 公共 =====
 
     public string? ClaudePath { get; set; }

@@ -120,6 +120,11 @@
                                 Background="#64ffda" Foreground="#1a1a2e"
                                 FontWeight="Bold" BorderThickness="0"
                                 IsEnabled="False" Visibility="Collapsed" Click="Send_Click"/>
+                        <Button x:Name="BtnNotebook" Content="📋" Width="30" Height="30" Margin="4,0,0,0"
+                                Background="#233554" Foreground="#8892b0"
+                                FontWeight="Bold" BorderThickness="0" Cursor="Hand"
+                                Click="ToggleNotebook_Click"
+                                ToolTip="打开/关闭备忘记事本"/>
                         <TextBlock Text="Ctrl+Enter" Foreground="#666666" FontSize="11"
                                    VerticalAlignment="Center" Margin="8,0,8,0"/>
                         <Button x:Name="BtnStop" Content="停止" Width="60" Height="30"
