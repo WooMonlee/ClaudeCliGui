@@ -60,7 +60,7 @@
                 </Grid.ColumnDefinitions>
                 <TextBox x:Name="ThinkingBox" Grid.Column="0"
                          Background="#0a0a14" Foreground="#8892b0"
-                         FontFamily="Consolas" FontSize="11"
+                         FontFamily="Consolas" FontSize="13"
                          IsReadOnly="True" BorderThickness="0"
                          VerticalScrollBarVisibility="Auto"
                          TextWrapping="Wrap"
@@ -160,7 +160,7 @@
                     </Grid>
                     <TextBox x:Name="ThinkingFullBox" Grid.Row="1"
                              Background="#0e0e1a" Foreground="#8892b0"
-                             FontFamily="Consolas" FontSize="11"
+                             FontFamily="Consolas" FontSize="13"
                              IsReadOnly="True" BorderThickness="0"
                              VerticalScrollBarVisibility="Auto"
                              TextWrapping="Wrap"/>

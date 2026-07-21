@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
+using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
@@ -39,6 +40,11 @@ public partial class MainWindow : Window
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
         Logger.Info("MainWindow Loaded");
+
+        // 标题栏追加版本号
+        var ver = Assembly.GetExecutingAssembly()
+            .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ?? "1.1.1";
+        Title = $"ClaudeCodeCli项目管理专家 v{ver}";
 
         // 创建跨进程退出取消信号（新实例恢复隐藏窗口时触发）
         try { _cancelExitEvent = new EventWaitHandle(false, EventResetMode.ManualReset, CancelExitEventName); }

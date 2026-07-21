@@ -13,7 +13,7 @@ public partial class App : System.Windows.Application
     [DllImport("user32.dll")] private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
     [DllImport("user32.dll")] private static extern bool SetForegroundWindow(IntPtr hWnd);
     private const int SW_RESTORE = 9;
-    private const string WindowTitle = "Claude 界面";
+    private const string WindowTitle = "ClaudeCodeCli项目管理专家";
 
     static App()
     {

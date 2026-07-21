@@ -192,7 +192,7 @@ public partial class TerminalControl : System.Windows.Controls.UserControl
         BtnThinking.Visibility = Visibility.Collapsed;
         ThinkingPanel.Visibility = Visibility.Collapsed;
         ThinkingPanel.BorderBrush = new SolidColorBrush(System.Windows.Media.Color.FromRgb(0x23, 0x35, 0x54));
-        ThinkingBox.FontSize = 11;
+        ThinkingBox.FontSize = 13;
         ThinkingOverlay.Visibility = Visibility.Collapsed;
         HideThinkPane();
         TxtPlaceholder.Visibility = Visibility.Collapsed;
@@ -244,7 +244,8 @@ public partial class TerminalControl : System.Windows.Controls.UserControl
         var proc = Process.Start(psi);
         if (proc == null) { _isRunning = false; UpdateUIState(); throw new InvalidOperationException("无法启动 AI 助手，请检查环境配置"); }
         _process = proc;
-        _process.StandardInput.Close();
+        // -p 模式：stdin 用完即关，claude 立即处理
+        proc.StandardInput.Close();
         _process.EnableRaisingEvents = true;
         _process.Exited += (_, _) => Dispatcher.BeginInvoke(OnProcessExited);
         UpdateUIState();
@@ -326,16 +327,20 @@ public partial class TerminalControl : System.Windows.Controls.UserControl
                             {
                                 var name = block.TryGetProperty("name", out var bn) ? bn.GetString() ?? "tool" : "tool";
                                 var input = block.TryGetProperty("input", out var inp) ? inp.ToString() : "";
-                                if (input.Length > 300) input = input[..300] + "...";
+                                if (input.Length > 500) input = input[..500] + "...";
                                 Logger.Info($"工具调用: {name} +{_stopwatch.Elapsed.TotalSeconds:F1}秒");
                                 AppendThinkingRaw(ToolPrefix + name + "\n" + ResultPrefix + input + "\n", false);
 
-                                // 交互类工具 → 加大思考窗比例并高亮提醒用户
+                                // 交互类工具 → 弹出选择窗口
                                 if (InteractiveTools.Contains(name))
                                 {
                                     ThinkRow.Height = new GridLength(2, GridUnitType.Star);
                                     ThinkingPanel.BorderBrush = new SolidColorBrush(System.Windows.Media.Color.FromRgb(0x64, 0xff, 0xda));
-                                    ThinkingBox.FontSize = 14;
+                                    ThinkingBox.FontSize = 16;
+
+                                    // 解析 input JSON 并弹出交互窗
+                                    var projectName = Path.GetFileName(_currentDir ?? "项目");
+                                    TryOpenInteractivePrompt(projectName, name, input);
                                 }
                             }
                         }
@@ -453,6 +458,75 @@ public partial class TerminalControl : System.Windows.Controls.UserControl
         ThinkRow.Height = new GridLength(1, GridUnitType.Star);
         ThinkRow.MinHeight = 60;
         ThinkSplitter.Visibility = Visibility.Visible;
+    }
+
+    // ===== 交互工具弹出窗 =====
+
+    /// <summary>解析 tool_use input JSON 字符串并弹出交互选择窗口</summary>
+    private void TryOpenInteractivePrompt(string projectName, string toolName, string inputJson)
+    {
+        try
+        {
+            var question = "请选择";
+            var options = new List<(string label, string? desc)>();
+            bool multiSelect = false;
+
+            if (!string.IsNullOrWhiteSpace(inputJson))
+            {
+                using var doc = System.Text.Json.JsonDocument.Parse(inputJson);
+                var root = doc.RootElement;
+
+                if (root.TryGetProperty("question", out var q))
+                    question = q.GetString() ?? question;
+
+                if (root.TryGetProperty("multiSelect", out var ms))
+                    multiSelect = ms.GetBoolean();
+
+                if (root.TryGetProperty("options", out var opts) && opts.ValueKind == System.Text.Json.JsonValueKind.Array)
+                {
+                    foreach (var o in opts.EnumerateArray())
+                    {
+                        var label = o.TryGetProperty("label", out var l) ? l.GetString() ?? "" : "";
+                        var desc = o.TryGetProperty("description", out var d) ? d.GetString() : null;
+                        if (!string.IsNullOrWhiteSpace(label))
+                            options.Add((label, desc));
+                    }
+                }
+            }
+
+            // 兜底：没有 options 的工具（如 confirm），显示 yes/no
+            if (options.Count == 0)
+            {
+                options.Add(("是 / Yes", null));
+                options.Add(("否 / No", null));
+            }
+
+            Dispatcher.Invoke(() =>
+            {
+                var win = new InteractivePromptWindow(projectName, toolName, question, options, multiSelect,
+                    selected =>
+                    {
+                        var response = selected.Count > 0 ? string.Join(", ", selected) : "";
+                        Logger.Info($"交互回复: 用户选择了 '{response}'");
+
+                        // 用 -p + --resume 模式发回答案（StartSession 自动拼接 --resume 参数）
+                        Dispatcher.BeginInvoke(new Action(() =>
+                        {
+                            if (!string.IsNullOrWhiteSpace(response))
+                                StartSession(_currentDir, response, ClaudePath);
+                            // 如果回答为空（跳过），旧进程已死，等用户下一条输入
+                            // 但 result 已经收到？不，tool_use 后进程还在等 stdin
+                            // 但在 -p 模式下 stdin 已关，进程会在 result 后自然退出
+                            // 跳过时什么都不做即可
+                        }));
+                    });
+                win.Show();
+            });
+        }
+        catch (Exception ex)
+        {
+            Logger.Warn($"交互工具弹窗失败: {ex.Message}");
+        }
     }
 
     /// <summary>关闭思考窗：思考行收缩，输出区恢复全屏</summary>
@@ -873,7 +947,7 @@ public partial class TerminalControl : System.Windows.Controls.UserControl
         // 重置思考窗行高为默认比例
         ThinkRow.Height = new GridLength(1, GridUnitType.Star);
         ThinkingPanel.BorderBrush = new SolidColorBrush(System.Windows.Media.Color.FromRgb(0x23, 0x35, 0x54));
-        ThinkingBox.FontSize = 11;
+        ThinkingBox.FontSize = 13;
         try { StartSession(_currentDir, prompt, ClaudePath); } catch (Exception ex) { AppendText($"启动失败: {ex.Message}\n", BrushError); }
         finally { _sending = false; _overrideProviderName = null; }
     }
