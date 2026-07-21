@@ -9,7 +9,7 @@
     <!-- 不用 UseWindowsForms（会引入全局类型歧义），直接引用 WinForms DLL 即可 -->
     <RootNamespace>ClaudeGui</RootNamespace>
     <AssemblyName>claudeCliGui</AssemblyName>
-    <Version>1.1.0</Version>
+    <Version>1.1.1</Version>
     <ApplicationIcon>D:\Prog\ProgIDE\Claude\bin\claude.ico</ApplicationIcon>
 
     <!-- Self-contained single-file publish -->

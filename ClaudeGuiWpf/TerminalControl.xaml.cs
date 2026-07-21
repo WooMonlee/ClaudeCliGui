@@ -31,8 +31,6 @@ public partial class TerminalControl : System.Windows.Controls.UserControl
     private readonly StringBuilder _thinkingHistory = new(); // 全部思考/tool_use 历史（全屏回看用）
     private Stopwatch _stopwatch = new(); // 计时：进程启动 → 各阶段耗时
     private int _failoverRetry; // failover 重试计数
-    private const double ThinkingNormalHeight = 200;
-    private const double ThinkingExpandedHeight = 400;
     // 交互类工具：检测到就撑大 ThinkingBox 提醒用户
     private static readonly HashSet<string> InteractiveTools = new(StringComparer.OrdinalIgnoreCase)
         { "AskUserQuestion", "question", "confirm", "input", "prompt", "clarify" };
@@ -193,10 +191,10 @@ public partial class TerminalControl : System.Windows.Controls.UserControl
         _thinkingHistory.Clear();
         BtnThinking.Visibility = Visibility.Collapsed;
         ThinkingPanel.Visibility = Visibility.Collapsed;
-        ThinkingPanel.MaxHeight = ThinkingNormalHeight;
         ThinkingPanel.BorderBrush = new SolidColorBrush(System.Windows.Media.Color.FromRgb(0x23, 0x35, 0x54));
         ThinkingBox.FontSize = 11;
         ThinkingOverlay.Visibility = Visibility.Collapsed;
+        HideThinkPane();
         TxtPlaceholder.Visibility = Visibility.Collapsed;
         NewOutputParagraph();
 
@@ -332,10 +330,10 @@ public partial class TerminalControl : System.Windows.Controls.UserControl
                                 Logger.Info($"工具调用: {name} +{_stopwatch.Elapsed.TotalSeconds:F1}秒");
                                 AppendThinkingRaw(ToolPrefix + name + "\n" + ResultPrefix + input + "\n", false);
 
-                                // 交互类工具 → 撑大 ThinkingBox 提醒用户
+                                // 交互类工具 → 加大思考窗比例并高亮提醒用户
                                 if (InteractiveTools.Contains(name))
                                 {
-                                    ThinkingPanel.MaxHeight = ThinkingExpandedHeight;
+                                    ThinkRow.Height = new GridLength(2, GridUnitType.Star);
                                     ThinkingPanel.BorderBrush = new SolidColorBrush(System.Windows.Media.Color.FromRgb(0x64, 0xff, 0xda));
                                     ThinkingBox.FontSize = 14;
                                 }
@@ -415,12 +413,12 @@ public partial class TerminalControl : System.Windows.Controls.UserControl
         if (string.IsNullOrEmpty(text)) return;
         if (!text.EndsWith("\n")) text += "\n";
 
-        // 首次：显示面板，启动呼吸灯；同时滚动 OutputBox，使最后内容可见
+        // 首次：显示面板，启动呼吸灯，上输出下思考分屏
         if (ThinkingPanel.Visibility != Visibility.Visible)
         {
             ThinkingBox.Text = "";
             ThinkingPanel.Visibility = Visibility.Visible;
-            Dispatcher.BeginInvoke(new Action(() => { OutputBox.ScrollToEnd(); }), System.Windows.Threading.DispatcherPriority.Background);
+            ShowThinkPane();
             if (ThinkingPanel.Resources["BreathingGlow"] is Storyboard sb)
                 sb.Begin();
         }
@@ -436,7 +434,7 @@ public partial class TerminalControl : System.Windows.Controls.UserControl
         StopWaitingAnimation();
     }
 
-    /// <summary>思考完成，隐藏面板，显示回看按钮</summary>
+    /// <summary>思考完成，隐藏面板，恢复输出全屏，显示回看按钮</summary>
     private void HideThinkingPanel()
     {
         // 停止呼吸灯动画，恢复默认边框色
@@ -444,8 +442,25 @@ public partial class TerminalControl : System.Windows.Controls.UserControl
             sb.Stop();
         ThinkingPanel.BorderBrush = new SolidColorBrush(System.Windows.Media.Color.FromRgb(0x23, 0x35, 0x54));
         ThinkingPanel.Visibility = Visibility.Collapsed;
+        HideThinkPane();
         if (_thinkingHistory.Length > 0)
             BtnThinking.Visibility = Visibility.Visible;
+    }
+
+    /// <summary>打开思考窗：输出区与思考窗上下分屏，中间可拖动分隔条</summary>
+    private void ShowThinkPane()
+    {
+        ThinkRow.Height = new GridLength(1, GridUnitType.Star);
+        ThinkRow.MinHeight = 60;
+        ThinkSplitter.Visibility = Visibility.Visible;
+    }
+
+    /// <summary>关闭思考窗：思考行收缩，输出区恢复全屏</summary>
+    private void HideThinkPane()
+    {
+        ThinkRow.Height = new GridLength(0);
+        ThinkRow.MinHeight = 0;
+        ThinkSplitter.Visibility = Visibility.Collapsed;
     }
 
     /// <summary>全屏查看思考历史</summary>
@@ -803,6 +818,7 @@ public partial class TerminalControl : System.Windows.Controls.UserControl
         ThinkingPanel.Visibility = Visibility.Collapsed;
         ThinkingOverlay.Visibility = Visibility.Collapsed;
         BtnThinking.Visibility = Visibility.Collapsed;
+        HideThinkPane();
         TxtPlaceholder.Visibility = Visibility.Visible;
     }
 
@@ -854,7 +870,8 @@ public partial class TerminalControl : System.Windows.Controls.UserControl
         _lastPrompt = prompt; // 记下本轮提示词，result 时写入聊天记录
         if (_isRunning) { StopProcess(); HideThinkingPanel(); }
         InputBox.Text = "";
-        ThinkingPanel.MaxHeight = ThinkingNormalHeight;
+        // 重置思考窗行高为默认比例
+        ThinkRow.Height = new GridLength(1, GridUnitType.Star);
         ThinkingPanel.BorderBrush = new SolidColorBrush(System.Windows.Media.Color.FromRgb(0x23, 0x35, 0x54));
         ThinkingBox.FontSize = 11;
         try { StartSession(_currentDir, prompt, ClaudePath); } catch (Exception ex) { AppendText($"启动失败: {ex.Message}\n", BrushError); }

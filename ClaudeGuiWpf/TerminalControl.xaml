@@ -5,12 +5,14 @@
              AllowDrop="True" DragOver="OnDragOver" Drop="OnDrop">
     <Grid>
         <Grid.RowDefinitions>
-            <RowDefinition Height="*"/>
+            <RowDefinition x:Name="OutputRow" Height="*"/>
+            <RowDefinition x:Name="ThinkSplitterRow" Height="Auto"/>
+            <RowDefinition x:Name="ThinkRow" Height="0"/>
             <RowDefinition Height="6"/>     <!-- 拖拽条 -->
             <RowDefinition x:Name="InputRow" Height="100" MinHeight="40"/>
         </Grid.RowDefinitions>
 
-        <!-- ===== 正式回复输出区域：纯渲染内容 ===== -->
+        <!-- ===== 正式回复输出区域 ===== -->
         <RichTextBox x:Name="OutputBox" Grid.Row="0"
                      Background="#0c0c0c" Foreground="#cccccc"
                      FontFamily="Consolas" FontSize="13"
@@ -32,10 +34,17 @@
                    HorizontalAlignment="Center" VerticalAlignment="Center"
                    Visibility="Visible"/>
 
-        <!-- ===== 思考面板：思考/tool_use/system 原始输出（覆盖在 OutputBox 上方） ===== -->
-        <Border x:Name="ThinkingPanel" Grid.Row="0"
+        <!-- 输出/思考分隔条（思考窗显示时才可见） -->
+        <GridSplitter x:Name="ThinkSplitter" Grid.Row="1"
+                      Height="5" HorizontalAlignment="Stretch"
+                      Background="#333333" ResizeBehavior="PreviousAndNext"
+                      ResizeDirection="Rows" Cursor="SizeNS"
+                      Visibility="Collapsed"/>
+
+        <!-- ===== 思考面板：思考/tool_use/system 原始输出 ===== -->
+        <Border x:Name="ThinkingPanel" Grid.Row="2"
                 Background="#0a0a14" BorderBrush="#233554" BorderThickness="2"
-                Visibility="Collapsed" MaxHeight="200" VerticalAlignment="Bottom">
+                Visibility="Collapsed" MinHeight="40">
             <Border.Resources>
                 <Storyboard x:Key="BreathingGlow" RepeatBehavior="Forever">
                     <ColorAnimation Storyboard.TargetName="ThinkingPanel"
@@ -60,12 +69,12 @@
         </Border>
 
         <!-- 拖拽条 -->
-        <GridSplitter Grid.Row="1" Height="6" HorizontalAlignment="Stretch"
+        <GridSplitter Grid.Row="3" Height="6" HorizontalAlignment="Stretch"
                       Background="#333333" ResizeBehavior="PreviousAndNext"
                       ResizeDirection="Rows" Cursor="SizeNS"/>
 
         <!-- 输入区域 -->
-        <Border Grid.Row="2" Background="#1a1a1a" BorderBrush="#333333" BorderThickness="0,1,0,0">
+        <Border Grid.Row="4" Background="#1a1a1a" BorderBrush="#333333" BorderThickness="0,1,0,0">
             <Grid Margin="10,4">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="*"/>
@@ -123,7 +132,7 @@
         </Border>
 
         <!-- ===== 思考全屏覆盖层 ===== -->
-        <Border x:Name="ThinkingOverlay" Grid.RowSpan="3"
+        <Border x:Name="ThinkingOverlay" Grid.RowSpan="5"
                 Background="#CC0c0c14" Visibility="Collapsed"
                 MouseLeftButtonDown="HideThinkingOverlay">
             <Border Width="720" MaxHeight="700"
