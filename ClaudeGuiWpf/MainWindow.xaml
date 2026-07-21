@@ -80,6 +80,7 @@
             <ColumnDefinition Width="260" MinWidth="200"/>
             <ColumnDefinition Width="5"/>  <!-- 分隔条 -->
             <ColumnDefinition Width="*"/>
+            <ColumnDefinition x:Name="NotebookCol" Width="0" MinWidth="0" MaxWidth="350"/>
         </Grid.ColumnDefinitions>
 
         <local:FileBrowserPanel x:Name="FileBrowserTree" Grid.Column="0" Visibility="Collapsed"/>
@@ -230,5 +231,35 @@
             <!-- 终端区域：每个项目一个 TerminalControl，切换项目时只改变可见性 -->
             <Grid x:Name="TerminalHost"/>
         </Grid>
+
+        <!-- ======== 备忘记事本（右侧弹出） ======== -->
+        <Border x:Name="NotebookPanel" Grid.Column="4" Background="#12121e"
+                BorderBrush="#0f3460" BorderThickness="2,0,0,0"
+                Visibility="Collapsed">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                </Grid.RowDefinitions>
+                <Grid Grid.Row="0" Margin="12,10,12,6">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Text="📝 备忘记事" FontSize="13" FontWeight="SemiBold"
+                               Foreground="#64ffda" VerticalAlignment="Center"/>
+                    <TextBlock Grid.Column="1" Text="🗑️" FontSize="14" Foreground="#ff6b6b"
+                               Cursor="Hand" MouseLeftButtonDown="NotebookClear_Click"
+                               ToolTip="清空记事本" VerticalAlignment="Center"/>
+                </Grid>
+                <TextBox x:Name="NotebookBox" Grid.Row="1"
+                         Background="#0c0c0c" Foreground="#e0e0e0"
+                         FontSize="13" FontFamily="Consolas"
+                         BorderThickness="0" Padding="8,4"
+                         AcceptsReturn="True" TextWrapping="Wrap"
+                         VerticalScrollBarVisibility="Auto"
+                         TextChanged="NotebookBox_TextChanged"/>
+            </Grid>
+        </Border>
     </Grid>
 </Window>

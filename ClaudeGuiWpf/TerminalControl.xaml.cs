@@ -201,8 +201,8 @@ public partial class TerminalControl : System.Windows.Controls.UserControl
 
         var userPara = new Paragraph(new Run($"> {prompt}\n"))
         {
-            Foreground = new SolidColorBrush(System.Windows.Media.Color.FromRgb(0xcc, 0xcc, 0xcc)),
-            Background = new SolidColorBrush(System.Windows.Media.Color.FromRgb(0x25, 0x25, 0x30)),
+            Foreground = Brushes.White,
+            Background = new SolidColorBrush(System.Windows.Media.Color.FromRgb(0x0f, 0x55, 0x55)),
             Margin = new Thickness(0, 2, 0, 6), LineHeight = 20, Padding = new Thickness(8, 4, 8, 4)
         };
         OutputBox.Document.Blocks.Add(userPara);
@@ -964,6 +964,15 @@ public partial class TerminalControl : System.Windows.Controls.UserControl
         ThinkingBox.FontSize = 13;
         try { StartSession(_currentDir, prompt, ClaudePath); } catch (Exception ex) { AppendText($"启动失败: {ex.Message}\n", BrushError); }
         finally { _sending = false; _overrideProviderName = null; }
+    }
+
+    // ===== 备忘记事本 =====
+
+    public event Action? ToggleNotebook;
+
+    private void ToggleNotebook_Click(object sender, RoutedEventArgs e)
+    {
+        ToggleNotebook?.Invoke();
     }
 
     // ===== 公共 =====
