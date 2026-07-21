@@ -75,11 +75,11 @@ ClaudeCliGui 把这些全自动化了：
 
 ### 自动更新
 
-后台查询 GitHub Release，有新版本下载为 `claudeg.new.exe`，下次启动自动替换。
+后台查询 GitHub Release，有新版本下载为 `claudeCliGui.new.exe`，下次启动自动替换。
 
 ## 快速开始
 
-1. 从 [Releases](https://github.com/WooMonlee/ClaudeCliGui/releases) 下载 `claudeg.exe`
+1. 从 [Releases](https://github.com/WooMonlee/ClaudeCliGui/releases) 下载最新版 `claudeCliGui.exe`
 2. 放到任意目录（建议和 `claude.exe` 同目录）
 3. 双击运行 → 按引导完成三步配置
 4. 新建或添加项目 → 开始对话
