@@ -82,22 +82,7 @@
             <ColumnDefinition Width="*"/>
         </Grid.ColumnDefinitions>
 
-        <!-- ======== 左侧：文件浏览器（TreeView 可折叠） ======== -->
-        <Border x:Name="FileBrowserPanel" Grid.Column="0" Background="#12121e" Visibility="Collapsed">
-            <Grid>
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto"/>
-                    <RowDefinition Height="*"/>
-                </Grid.RowDefinitions>
-                <TextBlock x:Name="FileBrowserTitle" Grid.Row="0"
-                           Text="📂 项目文件" FontSize="13" FontWeight="SemiBold"
-                           Foreground="#64ffda" Margin="12,10,12,6"/>
-                <ScrollViewer x:Name="FileBrowserScroll" Grid.Row="1" VerticalScrollBarVisibility="Auto"
-                              Background="Transparent" Margin="0">
-                    <StackPanel x:Name="FileBrowserPanelInner" Background="Transparent"/>
-                </ScrollViewer>
-            </Grid>
-        </Border>
+        <local:FileBrowserPanel x:Name="FileBrowserTree" Grid.Column="0" Visibility="Collapsed"/>
 
         <!-- ======== 左侧：项目面板 ======== -->
         <Border Grid.Column="1" Background="#16213e">
