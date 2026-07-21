@@ -108,7 +108,7 @@
                                    Cursor="Hand" MouseLeftButtonDown="ToggleContextMenu_Click"
                                    ToolTip="点击安装或卸载文件夹右键菜单"/>
                     </Grid>
-                    <TextBlock Text="选择项目开始对话" FontSize="11" Foreground="#8892b0" Margin="0,2,0,0"/>
+                    <TextBlock Text="选择或新建项目开始对话" FontSize="11" Foreground="#444958" Margin="30,10,0,0"/>
                 </StackPanel>
 
                 <!-- 工具栏 -->
@@ -147,7 +147,7 @@
                                         </Grid.ColumnDefinitions>
 
                                         <!-- 名称+路径 -->
-                                        <StackPanel Grid.Column="0">
+                                        <StackPanel Grid.Column="0" Margin="15,0,0,0">
                                             <TextBlock Text="{Binding Name}" FontSize="13" FontWeight="SemiBold"
                                                        Foreground="#e0e0e0"/>
                                             <TextBlock Text="{Binding Path}" FontSize="10" Foreground="#8892b0"
