@@ -704,8 +704,8 @@ public partial class TerminalControl : System.Windows.Controls.UserControl
             {
                 var para = new Paragraph(new Run($"> {msg.content}\n"))
                 {
-                    Foreground = new SolidColorBrush(System.Windows.Media.Color.FromRgb(0xcc, 0xcc, 0xcc)),
-                    Background = new SolidColorBrush(System.Windows.Media.Color.FromRgb(0x25, 0x25, 0x30)),
+                    Foreground = new SolidColorBrush(System.Windows.Media.Color.FromRgb(0xff, 0xff, 0xff)),
+                    Background = new SolidColorBrush(System.Windows.Media.Color.FromRgb(0x0f, 0x55, 0x55)),
                     Margin = new Thickness(0, 2, 0, 6), LineHeight = 20, Padding = new Thickness(8, 4, 8, 4)
                 };
                 if (OutputBox.Document.Blocks.FirstBlock != null)
