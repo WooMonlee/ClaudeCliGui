@@ -29,6 +29,7 @@ public partial class TerminalControl : System.Windows.Controls.UserControl
     private int _sessionInputTokens, _sessionOutputTokens;
     private decimal _sessionCost;
     private readonly StringBuilder _thinkingHistory = new(); // 全部思考/tool_use 历史（全屏回看用）
+    private const int ThinkingHistoryMaxLen = 500_000; // _thinkingHistory 上限字节（约 500KB）
     private Stopwatch _stopwatch = new(); // 计时：进程启动 → 各阶段耗时
     private int _failoverRetry; // failover 重试计数
     // 交互类工具：检测到就撑大 ThinkingBox 提醒用户
@@ -207,6 +208,10 @@ public partial class TerminalControl : System.Windows.Controls.UserControl
         OutputBox.Document.Blocks.Add(userPara);
         NewOutputParagraph();
 
+        // 如果当前没有 sessionId，尝试从项目目录恢复上次的（如果 --resume 续接）
+        if (string.IsNullOrWhiteSpace(_sessionId))
+            _sessionId = LoadSessionId();
+
         var isFirstUse = !Directory.Exists(Path.Combine(workDir, ".claude"));
         var args = new StringBuilder();
         if (!isFirstUse)
@@ -290,6 +295,8 @@ public partial class TerminalControl : System.Windows.Controls.UserControl
             {
                 _sessionId = sid.GetString();
                 Logger.Info($"会话ID: {_sessionId}");
+                // 持久化：下次启动可用 --resume 续接
+                SaveSessionId(_sessionId);
             }
 
             // 首次收到有意义的内容 → 记录从进程启动到首响应的耗时
@@ -432,8 +439,9 @@ public partial class TerminalControl : System.Windows.Controls.UserControl
         ThinkingBox.AppendText(text);
         ThinkingBox.ScrollToEnd();
 
-        // 写入历史（全屏回看用）
-        _thinkingHistory.Append(text);
+        // 写入历史（全屏回看用），超上限时丢弃旧内容
+        if (_thinkingHistory.Length < ThinkingHistoryMaxLen)
+            _thinkingHistory.Append(text);
 
         // 隐藏等待提示
         StopWaitingAnimation();
@@ -503,6 +511,7 @@ public partial class TerminalControl : System.Windows.Controls.UserControl
 
             Dispatcher.Invoke(() =>
             {
+                var owner = Window.GetWindow(this);
                 var win = new InteractivePromptWindow(projectName, toolName, question, options, multiSelect,
                     selected =>
                     {
@@ -520,6 +529,7 @@ public partial class TerminalControl : System.Windows.Controls.UserControl
                             // 跳过时什么都不做即可
                         }));
                     });
+                if (owner != null) win.Owner = owner;
                 win.Show();
             });
         }
@@ -745,10 +755,14 @@ public partial class TerminalControl : System.Windows.Controls.UserControl
     private void OnProcessExited()
     {
         int exitCode = -1;
-        try { exitCode = _process?.ExitCode ?? -1; }
-        catch (InvalidOperationException) { exitCode = -1; } // 进程已释放后访问 ExitCode
-        var p = _process; _process = null;
-        _ = Task.Run(() => { try { p?.Dispose(); } catch { } });
+        // 用 Interlocked 原子获取进程引用，避免与 StopProcess 竞态
+        var p = Interlocked.CompareExchange(ref _process, null, _process);
+        if (p != null)
+        {
+            try { exitCode = p.ExitCode; }
+            catch (InvalidOperationException) { exitCode = -1; }
+            _ = Task.Run(async () => { try { await Task.Delay(300); p.Dispose(); } catch { } });
+        }
 
         // Failover：非正常退出且不是用户主动停止 → 尝试备用提供商
         if (exitCode != 0 && _isRunning && Config != null && _failoverRetry < 3)
@@ -784,8 +798,8 @@ public partial class TerminalControl : System.Windows.Controls.UserControl
     {
         // 修复 T5：集中清理等待动画，避免各调用点遗漏
         StopWaitingAnimation();
-        var proc = _process;
-        _process = null;
+        // Interlocked.Exchange 避免 _process 与其他线程的竞态
+        var proc = Interlocked.Exchange(ref _process, null);
         if (proc != null)
         {
             bool isAlive;
@@ -1185,6 +1199,31 @@ public partial class TerminalControl : System.Windows.Controls.UserControl
 
     private static string BuildInitPrompt(string userPrompt, string workDir) =>
         $"""## 项目初始化 这是你第一次在当前项目目录下工作。请浏览项目结构并分析代码，在 .claude/CLAUDE.md 中记录项目信息。今后的所有记忆保存在 .claude/ 目录下。---用户的需求：{userPrompt}""";
+
+    /// <summary>持久化 sessionId 到项目目录（供重启后 --resume 续接）</summary>
+    private void SaveSessionId(string sessionId)
+    {
+        if (string.IsNullOrWhiteSpace(_currentDir) || string.IsNullOrWhiteSpace(sessionId)) return;
+        try
+        {
+            var dir = Path.Combine(_currentDir, ".claude");
+            if (!Directory.Exists(dir)) return;
+            File.WriteAllText(Path.Combine(dir, "session_id"), sessionId, Encoding.UTF8);
+        }
+        catch { /* 保存失败不阻塞 */ }
+    }
+
+    /// <summary>从项目目录加载上次的 sessionId</summary>
+    private string? LoadSessionId()
+    {
+        if (string.IsNullOrWhiteSpace(_currentDir)) return null;
+        try
+        {
+            var path = Path.Combine(_currentDir, ".claude", "session_id");
+            return File.Exists(path) ? File.ReadAllText(path, Encoding.UTF8).Trim() : null;
+        }
+        catch { return null; }
+    }
 
     private static T? GetVisualChild<T>(DependencyObject parent) where T : DependencyObject
     {

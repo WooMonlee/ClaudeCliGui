@@ -2,8 +2,8 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="AI 提问" Width="520" Height="420"
-        WindowStartupLocation="CenterScreen" ResizeMode="CanResize"
-        Topmost="True" ShowInTaskbar="True"
+        WindowStartupLocation="CenterOwner" ResizeMode="CanResize"
+        Topmost="False" ShowInTaskbar="True"
         Background="#16213e"
         Loaded="Window_Loaded" KeyDown="Window_KeyDown">
     <Border Background="#16213e" BorderBrush="#233554" BorderThickness="1"
