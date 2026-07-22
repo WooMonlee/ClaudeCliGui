@@ -363,6 +363,7 @@ public partial class TerminalControl : System.Windows.Controls.UserControl
                     var promptSnapshot = _lastPrompt;
                     var dirSnapshot = _currentDir;
                     _ = Task.Run(() => SaveChatRecord(dirSnapshot, promptSnapshot, accText));
+                    MainWindow.AppendChatHistory(_currentDir, "assistant", accText);
                     var oldPara = _currentPara;
                     var docRef = OutputBox.Document;
                     NewOutputParagraph();
@@ -956,6 +957,7 @@ public partial class TerminalControl : System.Windows.Controls.UserControl
         if (string.IsNullOrWhiteSpace(_currentDir)) return; // 未选项目时忽略发送
         _sending = true;
         _lastPrompt = prompt; // 记下本轮提示词，result 时写入聊天记录
+        MainWindow.AppendChatHistory(_currentDir, "user", prompt);
         if (_isRunning) { StopProcess(); HideThinkingPanel(); }
         InputBox.Text = "";
         // 重置思考窗行高为默认比例
