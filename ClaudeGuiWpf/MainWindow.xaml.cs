@@ -545,16 +545,76 @@ public partial class MainWindow : Window
 
     // ============ 历史快照 ============
 
+    /// <summary>仅从项目本地的 .claude\ 加载历史，不触碰全局目录</summary>
     private static void LoadSnapshot(TerminalControl tc, string workDir)
     {
-        var all = LoadClaudeJsonlHistory(workDir, 1000);
+        if (string.IsNullOrWhiteSpace(workDir)) return;
+
+        var all = LoadLocalChatHistory(workDir);
         if (all.Count == 0) all = LoadClaudegSnapshot(workDir);
         if (all.Count == 0) return;
 
-        var messages = all.Select(m => (m.Role, m.Content)).ToList();
-        tc.LoadFullSnapshot(messages);
+        tc.LoadFullSnapshot(all.Select(m => (m.Role, m.Content)).ToList());
         tc.ScrollToEnd();
         Logger.Info($"加载历史: {all.Count} 条");
+    }
+
+    /// <summary>读取本地 .claude\chat-history.jsonl（格式：role\tcontent，无tab行续接上一条内容）</summary>
+    private static List<SnapshotMsg> LoadLocalChatHistory(string workDir)
+    {
+        var result = new List<SnapshotMsg>();
+        var path = Path.Combine(workDir, ".claude", "chat-history.jsonl");
+        if (!File.Exists(path)) return result;
+        try
+        {
+            var seen = new HashSet<string>();
+            string? pendingRole = null;
+            var pendingContent = new StringBuilder();
+            foreach (var line in File.ReadLines(path))
+            {
+                if (string.IsNullOrWhiteSpace(line)) continue;
+                var idx = line.IndexOf('\t');
+                if (idx >= 0)
+                {
+                    // 有tab → 新记录，先把上一条存了
+                    FlushPending(result, seen, pendingRole, pendingContent);
+                    pendingRole = line[..idx] == "user" ? "user" : "assistant";
+                    pendingContent.Clear();
+                    pendingContent.Append(line[(idx + 1)..]);
+                }
+                else if (pendingRole != null)
+                {
+                    // 无tab → 续接上一条内容（兼容旧版未转义换行的数据）
+                    pendingContent.Append('\n').Append(line);
+                }
+            }
+            FlushPending(result, seen, pendingRole, pendingContent);
+        }
+        catch { }
+        return result;
+
+        static void FlushPending(List<SnapshotMsg> result, HashSet<string> seen, string? role, StringBuilder content)
+        {
+            if (role == null || content.Length == 0) return;
+            var text = content.ToString().Replace("\\n", "\n").Replace("\\\\", "\\");
+            if (!string.IsNullOrWhiteSpace(text) && seen.Add(text))
+                result.Add(new SnapshotMsg { Role = role, Content = text });
+        }
+    }
+
+    /// <summary>将对话写入本地 .claude\chat-history.jsonl</summary>
+    public static void AppendChatHistory(string workDir, string role, string content)
+    {
+        if (string.IsNullOrWhiteSpace(workDir) || string.IsNullOrWhiteSpace(content)) return;
+        try
+        {
+            var dir = Path.Combine(workDir, ".claude");
+            if (!Directory.Exists(dir)) Directory.CreateDirectory(dir);
+            // 内容中的换行转义为 \n，避免破坏每行一条记录的格式
+            var escaped = content.Replace("\\", "\\\\").Replace("\n", "\\n").Replace("\r", "");
+            File.AppendAllText(Path.Combine(dir, "chat-history.jsonl"), $"{role}\t{escaped}\n", System.Text.Encoding.UTF8);
+        }
+        catch { }
     }
 
     private static List<SnapshotMsg> LoadClaudegSnapshot(string workDir)
@@ -569,85 +629,6 @@ public partial class MainWindow : Window
         }
         catch { }
         return result;
-    }
-
-    private static List<SnapshotMsg> LoadClaudeJsonlHistory(string workDir, int maxCount = 500)
-    {
-        var result = new List<SnapshotMsg>();
-        var root = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".claude", "projects");
-        if (!Directory.Exists(root)) return result;
-        var norm = workDir.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-        var encoded = EncodeProjectPath(norm);
-        var pDir = Path.Combine(root, encoded);
-        if (!Directory.Exists(pDir))
-            pDir = Directory.GetDirectories(root).FirstOrDefault(d =>
-                string.Equals(Path.GetFileName(d), encoded, StringComparison.OrdinalIgnoreCase)
-                || string.Equals(Path.GetFileName(d), EncodeProjectPath(norm + Path.DirectorySeparatorChar), StringComparison.OrdinalIgnoreCase));
-        if (pDir == null) return result;
-
-        // 修复 L9：用内容字符串做去重键，避免 GetHashCode 碰撞丢消息
-        var seen = new HashSet<string>();
-        foreach (var f in Directory.GetFiles(pDir, "*.jsonl").OrderBy(f => new FileInfo(f).LastWriteTimeUtc))
-        {
-            try
-            {
-                foreach (var line in File.ReadLines(f))
-                {
-                    if (string.IsNullOrWhiteSpace(line)) continue;
-                    var msg = ParseJsonlLine(line);
-                    if (msg != null && seen.Add(msg.Content)) result.Add(msg);
-                }
-            }
-            catch { }
-        }
-        if (result.Count > maxCount) result = result.Skip(result.Count - maxCount).ToList();
-        return result;
-    }
-
-    private static SnapshotMsg? ParseJsonlLine(string line)
-    {
-        try
-        {
-            using var doc = JsonDocument.Parse(line);
-            var root = doc.RootElement;
-            var type = root.TryGetProperty("type", out var t) ? t.GetString() : null;
-            if (type == "user" && root.TryGetProperty("message", out var um) && um.TryGetProperty("content", out var uc))
-            {
-                var c = uc.GetString();
-                if (!string.IsNullOrWhiteSpace(c)) return new SnapshotMsg { Role = "user", Content = c };
-            }
-            else if (type == "assistant" && root.TryGetProperty("message", out var am))
-            {
-                var ct = am.TryGetProperty("content", out var ac) ? ac : default;
-                var text = ExtractJsonlText(ct);
-                if (!string.IsNullOrWhiteSpace(text)) return new SnapshotMsg { Role = "assistant", Content = text };
-            }
-        }
-        catch { }
-        return null;
-    }
-
-    private static string ExtractJsonlText(JsonElement c)
-    {
-        if (c.ValueKind == JsonValueKind.String) return c.GetString() ?? "";
-        if (c.ValueKind == JsonValueKind.Array)
-        {
-            var sb = new StringBuilder();
-            foreach (var b in c.EnumerateArray())
-            {
-                var bt = b.TryGetProperty("type", out var t) ? t.GetString() : null;
-                if (bt == "text" && b.TryGetProperty("text", out var txt)) sb.AppendLine(txt.GetString());
-            }
-            return sb.ToString().TrimEnd();
-        }
-        return "";
-    }
-
-    private static string EncodeProjectPath(string path)
-    {
-        var sb = new StringBuilder(path.Length);
-        foreach (char c in path) sb.Append((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '.' ? c : '-');
-        return sb.ToString();
     }
 
     private class SnapshotMsg { public string Role { get; set; } = ""; public string Content { get; set; } = ""; }
@@ -843,10 +824,10 @@ public partial class MainWindow : Window
         else
         {
             var exePath = Environment.ProcessPath ?? "";
-            Microsoft.Win32.Registry.SetValue(@"HKEY_CLASSES_ROOT\Directory\shell\ClaudeGui", "", "在当前文件夹使用ClaudeGui");
+            Microsoft.Win32.Registry.SetValue(@"HKEY_CLASSES_ROOT\Directory\shell\ClaudeGui", "", "在当前文件夹使用ClaudeCli管理专家");
             Microsoft.Win32.Registry.SetValue(@"HKEY_CLASSES_ROOT\Directory\shell\ClaudeGui", "Icon", exePath);
             Microsoft.Win32.Registry.SetValue(@"HKEY_CLASSES_ROOT\Directory\shell\ClaudeGui\command", "", $"\"{exePath}\" --add-project \"%1\"");
-            Microsoft.Win32.Registry.SetValue(@"HKEY_CLASSES_ROOT\Directory\Background\shell\ClaudeGui", "", "在当前文件夹使用ClaudeGui");
+            Microsoft.Win32.Registry.SetValue(@"HKEY_CLASSES_ROOT\Directory\Background\shell\ClaudeGui", "", "在当前文件夹使用ClaudeCli管理专家");
             Microsoft.Win32.Registry.SetValue(@"HKEY_CLASSES_ROOT\Directory\Background\shell\ClaudeGui", "Icon", exePath);
             Microsoft.Win32.Registry.SetValue(@"HKEY_CLASSES_ROOT\Directory\Background\shell\ClaudeGui\command", "", $"\"{exePath}\" --add-project \"%V\"");
         }
