@@ -11,7 +11,7 @@
 <p align="center">
   <img src="https://img.shields.io/badge/.NET-8.0-512BD4?logo=dotnet" alt=".NET 8">
   <img src="https://img.shields.io/badge/platform-Windows%2010%2B-blue?logo=windows" alt="Windows 10+">
-  <img src="https://img.shields.io/badge/release-v1.1.7-64ffda" alt="v1.1.7">
+  <img src="https://img.shields.io/badge/release-v1.1.8-64ffda" alt="v1.1.8">
   <img src="https://img.shields.io/badge/license-MIT-green" alt="MIT">
 </p>
 
