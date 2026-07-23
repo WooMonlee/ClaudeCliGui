@@ -20,6 +20,11 @@ public static class MarkdownRenderer
     private static readonly SolidColorBrush BrTableBorder = new(System.Windows.Media.Color.FromRgb(0x23, 0x35, 0x54));
     private static readonly SolidColorBrush BrTableCell = new(System.Windows.Media.Color.FromRgb(0x0c, 0x0c, 0x0c));
 
+    // 盒式表格字符集合（Unicode 制表符）
+    private static readonly HashSet<char> BoxChars = new()
+    { '─', '━', '═', '│', '┃', '┌', '┐', '└', '┘', '├', '┤', '┬', '┴', '┼',
+      '┏', '┓', '┗', '┛', '┣', '┫', '┳', '┻', '╋', '╭', '╮', '╰', '╯' };
+
     public static List<Block> Render(string markdown)
     {
         var blocks = new List<Block>();
@@ -32,6 +37,7 @@ public static class MarkdownRenderer
             var line = lines[i];
             if (string.IsNullOrWhiteSpace(line)) { i++; continue; }
             if (line.TrimStart().StartsWith("```")) { blocks.Add(RenderCodeBlock(lines, ref i)); continue; }
+            if (IsBoxTable(lines, i)) { blocks.Add(RenderBoxTable(lines, ref i)); continue; }
             if (line.Contains('|') && IsTable(lines, i)) { blocks.Add(RenderTable(lines, ref i)); continue; }
             var hm = Regex.Match(line, @"^(#{1,6})\s+(.+)$");
             if (hm.Success) { blocks.Add(CreateHeading(hm.Groups[2].Value, hm.Groups[1].Length)); i++; continue; }
@@ -94,6 +100,43 @@ public static class MarkdownRenderer
         while (i < lines.Length && !lines[i].TrimStart().StartsWith("```")) { sb.AppendLine(lines[i]); i++; }
         i++;
         return new Paragraph(new Run(sb.ToString().TrimEnd())) { Background = BrCodeBg, Foreground = BrCode, FontFamily = new System.Windows.Media.FontFamily("Consolas"), FontSize = 12, Margin = new Thickness(0, 4, 0, 8), Padding = new Thickness(12, 8, 12, 8), LineHeight = 18 };
+    }
+
+    /// <summary>判断是否为 Unicode 盒式表格（如 ┌──┬──┐）</summary>
+    private static bool IsBoxTable(string[] lines, int start)
+    {
+        for (int j = start; j < lines.Length && j < start + 50; j++)
+        {
+            var t = lines[j].Trim();
+            if (string.IsNullOrEmpty(t)) return j > start;
+            if (t.Any(c => BoxChars.Contains(c))) continue;
+            // 纯文字行也算（表格内的内容行不含盒式字符但两侧有 │）
+            if (t.StartsWith('│') || t.StartsWith('┃') || t.StartsWith('┊')) continue;
+            if (j == start) return false; // 首行就不是 → 不是表格
+            return true; // 之前是表格行，遇到非表格行结束
+        }
+        return false;
+    }
+
+    /// <summary>渲染盒式表格：用等宽字体保留对齐</summary>
+    private static Block RenderBoxTable(string[] lines, ref int i)
+    {
+        var sb = new System.Text.StringBuilder();
+        while (i < lines.Length && (lines[i].Any(c => BoxChars.Contains(c)) || lines[i].TrimStart().StartsWith('│')))
+        {
+            sb.AppendLine(lines[i].TrimEnd());
+            i++;
+        }
+        return new Paragraph(new Run(sb.ToString().TrimEnd()))
+        {
+            FontFamily = new System.Windows.Media.FontFamily("Consolas"),
+            FontSize = 12,
+            Foreground = BrText,
+            Background = BrCodeBg,
+            Margin = new Thickness(0, 4, 0, 8),
+            Padding = new Thickness(12, 8, 12, 8),
+            LineHeight = 18,
+        };
     }
 
     private static bool IsTable(string[] lines, int start)
