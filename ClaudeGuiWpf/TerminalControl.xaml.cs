@@ -341,7 +341,6 @@ public partial class TerminalControl : System.Windows.Controls.UserControl
                                 // 交互类工具 → 弹出选择窗口
                                 if (InteractiveTools.Contains(name))
                                 {
-                                    ThinkRow.Height = new GridLength(2, GridUnitType.Star);
                                     ThinkingPanel.BorderBrush = new SolidColorBrush(System.Windows.Media.Color.FromRgb(0x64, 0xff, 0xda));
                                     ThinkingBox.FontSize = 16;
 
@@ -461,13 +460,8 @@ public partial class TerminalControl : System.Windows.Controls.UserControl
             BtnThinking.Visibility = Visibility.Visible;
     }
 
-    /// <summary>打开思考窗：输出区与思考窗上下分屏，中间可拖动分隔条</summary>
-    private void ShowThinkPane()
-    {
-        ThinkRow.Height = new GridLength(1, GridUnitType.Star);
-        ThinkRow.MinHeight = 60;
-        ThinkSplitter.Visibility = Visibility.Visible;
-    }
+    /// <summary>思考窗已改为覆盖层，无需调行高</summary>
+    private void ShowThinkPane() { }
 
     // ===== 交互工具弹出窗 =====
 
@@ -540,13 +534,8 @@ public partial class TerminalControl : System.Windows.Controls.UserControl
         }
     }
 
-    /// <summary>关闭思考窗：思考行收缩，输出区恢复全屏</summary>
-    private void HideThinkPane()
-    {
-        ThinkRow.Height = new GridLength(0);
-        ThinkRow.MinHeight = 0;
-        ThinkSplitter.Visibility = Visibility.Collapsed;
-    }
+    /// <summary>思考窗已改为覆盖层，无需调行高</summary>
+    private void HideThinkPane() { }
 
     /// <summary>全屏查看思考历史</summary>
     private void ShowThinkingOverlay(object sender, RoutedEventArgs e)
@@ -960,8 +949,6 @@ public partial class TerminalControl : System.Windows.Controls.UserControl
         MainWindow.AppendChatHistory(_currentDir, "user", prompt);
         if (_isRunning) { StopProcess(); HideThinkingPanel(); }
         InputBox.Text = "";
-        // 重置思考窗行高为默认比例
-        ThinkRow.Height = new GridLength(1, GridUnitType.Star);
         ThinkingPanel.BorderBrush = new SolidColorBrush(System.Windows.Media.Color.FromRgb(0x23, 0x35, 0x54));
         ThinkingBox.FontSize = 13;
         try { StartSession(_currentDir, prompt, ClaudePath); } catch (Exception ex) { AppendText($"启动失败: {ex.Message}\n", BrushError); }
